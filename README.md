@@ -17,7 +17,7 @@ Hosted on [Mintlify](https://mintlify.com), auto-deployed from this repository.
 - **Comparisons** — honest tradeoffs vs Mem0, Zep, and OpenAI File Search.
 - **API Reference** — Introduction, Errors, Versioning + auto-imported reference from [api.scipot.ai/openapi.json](https://api.scipot.ai/openapi.json).
 
-The API itself lives in [smtx/scipot-core](https://github.com/smtx/scipot-core). Bug reports for endpoint behaviour go there; bug reports for docs content go here.
+The API itself is served from `https://api.scipot.ai` (interactive Swagger at `/docs`, OpenAPI spec at `/openapi.json`). The source repo is private during pre-revenue phase; for bug reports against the API itself, email `hello@scipot.ai`. For bug reports against docs content, open an issue here.
 
 ---
 
@@ -98,7 +98,7 @@ These mirror [scipot.ai](https://scipot.ai) so the docs feel continuous with the
 
 Found a typo, an inaccurate description, an example that doesn't run? Open a PR — small fixes are merged quickly. For larger structural changes, open an issue first so we can align on direction.
 
-When editing API reference content: the per-endpoint docs are **auto-imported** from `api.scipot.ai/openapi.json`. To fix an endpoint description, update the FastAPI route in [scipot-core](https://github.com/smtx/scipot-core), not the MDX here. The MDX files in `api-reference/` are the surrounding meta pages (Introduction, Errors, Versioning), not the per-endpoint reference itself.
+When editing API reference content: the per-endpoint docs are **auto-imported** from `api.scipot.ai/openapi.json`. To fix an endpoint description, update the FastAPI route in the private API repo (contact `hello@scipot.ai` if you've spotted something), not the MDX here. The MDX files in `api-reference/` are the surrounding meta pages (Introduction, API Surface, Errors, Versioning, Changelog), not the per-endpoint reference itself.
 
 ---
 

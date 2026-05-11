@@ -63,7 +63,7 @@
     {
       "name": "GitHub",
       "icon": "github",
-      "url": "https://github.com/smtx/scipot-core"
+      "url": "https://github.com/smtx/scipot-docs"
     }
   ],
   "navigation": [
@@ -111,6 +111,12 @@
         "api-reference/errors",
         "api-reference/versioning"
       ]
+    },
+    {
+      "group": "Release notes",
+      "pages": [
+        "changelog"
+      ]
     }
   ],
   "openapi": "https://api.scipot.ai/openapi.json",
@@ -131,7 +137,7 @@
   },
   "footerSocials": {
     "website": "https://scipot.ai",
-    "github": "https://github.com/smtx/scipot-core"
+    "github": "https://github.com/smtx/scipot-docs"
   },
   "analytics": {
     "posthog": {

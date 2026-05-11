@@ -391,22 +391,11 @@ Never. On any surface.
 
 These violate brand integrity and must be fixed before the design system is considered shipped.
 
-### 1. CRITICAL — broken links to private repo
+### 1. ~~CRITICAL — broken links to private repo~~  ✅ RESOLVED 2026-05-11
 
-Nine references in scipot-docs point to `github.com/smtx/scipot-core` which is **PRIVATE**. Every external dev who clicks one hits 404.
+Decision applied: option (b) — redirect all 9 references to docs.scipot.ai equivalents. `scipot-core` stays private. Created `/changelog` page in scipot-docs mirroring the CHANGELOG. Updated `mint.json` GitHub anchor to point at the public `smtx/scipot-docs` repo. POT Score spec cross-links redirected to `/trust-mechanics/pot-score-and-provenance` (which already covers the mapping inline). README.md prose updated to text-only references with `hello@scipot.ai` as the contact for API bug reports.
 
-**Locations:**
-- `mint.json:66` — GitHub anchor in topbar
-- `mint.json:134` — footer social
-- `README.md:20, 101` — public-repo readme prose (visible on the public GitHub)
-- `api-reference/versioning.mdx:9, 24, 127` — CHANGELOG references
-- `api-reference/introduction.mdx:147` — POT Score spec link
-- `trust-mechanics/pot-score-and-provenance.mdx:58` — canonical spec link
-
-**Resolution options (pick one and apply consistently):**
-- (a) **Make `smtx/scipot-core` public.** Most aligned with the "self-serve API is open" posture. Recommended once the dust settles from M-DOCS prep PR.
-- (b) **Redirect each link to a docs.scipot.ai equivalent.** CHANGELOG → a new `/changelog` page in scipot-docs. Spec → already covered by `/trust-mechanics/pot-score-and-provenance`. Removes the `github.com/smtx/scipot-core` references entirely from public docs.
-- (c) **Remove the links.** Replace the GitHub anchor with a Twitter/X anchor or Discord. Drop CHANGELOG references in versioning until there's a public CHANGELOG.
+Zero broken `github.com/smtx/scipot-core` links remain in the public docs.
 
 ### 2. HIGH — density on `get-started/quickstart.mdx`
 

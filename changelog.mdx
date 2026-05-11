@@ -1,0 +1,81 @@
+---
+title: "Changelog"
+sidebarTitle: "Changelog"
+description: "Every user-visible change to the SciPot API, in reverse chronological order. Format follows Keep a Changelog; the project follows Semantic Versioning."
+---
+
+This page mirrors the canonical [CHANGELOG.md](https://github.com/smtx/scipot-docs/blob/main/changelog.mdx) and is updated on every release. The current API version is reported in the `X-API-Version` response header on every authenticated request.
+
+<Note>
+**Pre-1.0 versioning.** While the API is below `1.0.0`, minor version bumps (`0.x.0`) MAY include breaking changes. We always document them here, but consumers should pin to a known-good minor version. Once the API stabilises, we'll cut `1.0.0` and adopt strict SemVer (breaking changes only in major bumps). See [Versioning](/api-reference/versioning) for the full policy.
+</Note>
+
+---
+
+## Unreleased
+
+_Changes in flight on `main` but not yet tagged._
+
+---
+
+## 0.2.0 — 2026-05-11
+
+First version with deliberate version tracking. Includes the public-API preparation work for the [docs.scipot.ai](https://docs.scipot.ai) launch: route cleanup, structured error envelope rail, OpenAPI enrichment.
+
+### Added
+
+- **`ScipotError` exception class** producing the structured error envelope `{error: {code, message, cause, fix, docs_url, request_id, retryable}}`. Routes can opt in incrementally; legacy `HTTPException(detail=...)` raises continue to produce the `{detail: ...}` shape. See [Errors](/api-reference/errors).
+- **`docs_base_url` setting** (default `https://docs.scipot.ai/api-reference/errors`, env-overridable) so local/staging environments produce env-correct `docs_url` fields.
+- **OpenAPI descriptions enriched** on the top-5 high-traffic routes — `POST /pots`, `POST /pots/{pot_id}/ingest`, `POST /pots/{pot_id}/synthesize`, `GET /pots/{pot_id}/facts`, `POST /pots/{pot_id}/edges/detect`. Mintlify's auto-import now renders rich per-endpoint pages.
+- **`GET /pots/by-slug/{slug}`** — workspace-from-header canonical lookup. Replaces the path-arg form (retained as a hidden legacy alias for admin tooling).
+- **`POST /pots/from-directory`** — internal-only alias for the legacy YAML-directory loader. Hidden from public OpenAPI.
+
+### Changed (breaking)
+
+- **`POST /pots/from-json` is now `POST /pots`** as the canonical JSON-body POT creation endpoint. The old `/pots/from-json` path is no longer served. The previous `POST /pots` (YAML directory loader) is now `POST /pots/from-directory` and hidden from the public OpenAPI surface.
+- **`GET /pots/by-slug/{workspace_id}/{slug}` → `GET /pots/by-slug/{slug}`**, with workspace inferred from the `X-Workspace-ID` header. Legacy path-arg form remains registered but hidden from OpenAPI (deprecated). New code should use the canonical path.
+- **`POST /pots/{pot_id}/ingest` 413 removed.** Oversize `content` returns `422` with a Pydantic validation error (schema enforces a 100 KB inline-text cap). The 100 KB cap is specific to this endpoint — larger documents go through `POST /documents/upload` (default 50 MB).
+- **Handler `create_pot_from_json` renamed to `create_pot`** for a clean OpenAPI `operationId`. Internal YAML handler stays as `create_pot_from_directory`.
+- **OpenAPI `info.description`** updated: auth header is `X-API-Key` (not `Authorization: Bearer`); creation route is `POST /pots`; added link to [docs.scipot.ai](https://docs.scipot.ai).
+
+### Deprecated
+
+- **`POST /pots/{pot_id}/edges/detect-lab`** removed from the public OpenAPI surface (`include_in_schema=False`). Endpoint still works for internal prompt-tuning use but is no longer part of the public API contract.
+
+### Documentation
+
+- **POT Score ladder cross-linking** across the project's internal docs. The dual model — 5-tier external (CONSTITUTION / VERIFIED / EXTRACTED / INFERRED / PENDING) for concept pages and whitepapers, 6-tier internal (CONSTITUTION / VERIFIED / SUPPORTED / INFERRED / HYPOTHESIS / SPECULATION) returned by the API — is now navigable. See [POT Score & Provenance](/trust-mechanics/pot-score-and-provenance) for the mapping table.
+
+---
+
+## 0.1.0 — pre-2026-05-11 (un-versioned development)
+
+Initial development snapshot. This version label was the FastAPI default; no formal versioning was tracked. State at this point:
+
+- **Core schemas:** POT, Fact, Edge, Constitution
+- **POT Service + HTTP API**
+- **Document ingestion** with chunking and async fact extraction
+- **Fact quality inspector** + extraction audit
+- **Edge detection** vs Constitution
+- **Persistence + embeddings** via DynamoDB + Pinecone
+- **RAG queries + retrieval**
+- **CAG** (cached augmented generation) retriever
+- **Query Router** with auto-strategy selection
+- **GraphRAG** with BFS traversal
+- **Integrator auth + API keys + rate limiting**
+- **Document lifecycle:** upload + MarkItDown conversion + S3
+- **Auto edge detection** after ingestion + score propagation
+- **Self-serve signup** at `POST /auth/signup` + email verification
+- **Stripe billing** at `/integrator/billing/*` (checkout, portal, token-topup)
+- **Expert contribution + curation** at `/pots/{pot_id}/facts/contribute` and `/pots/{pot_id}/facts/{fact_id}/curate`
+- **Contradiction resolution** workflow at `/pots/{pot_id}/edges/{edge_id}/stances` and `/pots/{pot_id}/edges/{edge_id}/resolve`
+- **Graph visualisation** at `GET /pots/{pot_id}/graph`
+- **Usage + dashboard** at `/integrator/usage/*` and `/integrator/dashboard`
+
+Going forward, every user-visible change to the API gets an entry in this file before merging.
+
+---
+
+<Note>
+**How this changelog stays in sync.** The canonical CHANGELOG lives in the API repo. Every release updates this Mintlify page in lockstep. If you see a version in `X-API-Version` that isn't reflected here, that's our bug — let us know at [hello@scipot.ai](mailto:hello@scipot.ai).
+</Note>

@@ -1,0 +1,193 @@
+---
+title: "Quickstart — advanced"
+sidebarTitle: "Quickstart (advanced)"
+description: "Production patterns the happy path skips: curator promotion (SUPPORTED → VERIFIED), error handling with retry semantics, the document-size pipeline split, and what to log."
+---
+
+Once you've shipped the [happy-path Quickstart](/get-started/quickstart), production puts you against the things the happy path skips. This page covers them — short, code-first, no theory.
+
+## Promote a fact to VERIFIED (curator action)
+
+Facts from `POST /pots/{pot_id}/ingest` land at `SUPPORTED` (POT Score 0.72) — extracted from one document, not yet verified. Once a Human Curator confirms the claim is canonical, promote with `POST /pots/{pot_id}/facts/{fact_id}/curate`:
+
+<CodeGroup>
+```bash curl
+curl -X POST "$SCIPOT_BASE/pots/$POT_ID/facts/$FACT_ID/curate" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "approve",
+    "promote_to_level": "VERIFIED",
+    "curator_id": "user_cto_001",
+    "rationale": "Confirmed against ADR-2026-014. This is the canonical retry policy."
+  }'
+```
+
+```javascript fetch
+await fetch(`${SCIPOT_BASE}/pots/${POT_ID}/facts/${FACT_ID}/curate`, {
+  method: "POST",
+  headers: {
+    "X-API-Key": SCIPOT_KEY,
+    "X-Workspace-ID": SCIPOT_WORKSPACE,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    action: "approve",
+    promote_to_level: "VERIFIED",
+    curator_id: "user_cto_001",
+    rationale: "Confirmed against ADR-2026-014. This is the canonical retry policy.",
+  }),
+});
+```
+
+```python httpx
+httpx.post(
+    f"{base}/pots/{POT_ID}/facts/{FACT_ID}/curate",
+    headers=headers,
+    json={
+        "action": "approve",
+        "promote_to_level": "VERIFIED",
+        "curator_id": "user_cto_001",
+        "rationale": "Confirmed against ADR-2026-014. This is the canonical retry policy.",
+    },
+    timeout=10.0,
+)
+```
+</CodeGroup>
+
+The next time the same query runs, the promoted fact returns at `pot_score: 0.92`, `level: "VERIFIED"`, and `provenance.curated_by: "user_cto_001"`. Audit trail is preserved in a `CurationRecord` entry.
+
+The same endpoint also handles `disapprove` (drop the fact below `INFERRED`), `demote` (move down a level), and `refine` (rewrite + supersede). See [Curators](/trust-mechanics/curators) for the full action surface and expertise-weighted contributor flow.
+
+## Error handling
+
+In production, every authenticated request can return:
+
+| Status | When | Retry? |
+|---|---|---|
+| `429 Too Many Requests` | Per-integrator rate cap hit, or `QUOTA_*` exhausted | **Yes** — honor `Retry-After`, exponential backoff |
+| `401 Unauthorized` | Missing / invalid `X-API-Key`, or workspace mismatch | No — fix credentials |
+| `403 Forbidden` | Valid key, lacking permission (Curator-only action, bootstrap, etc.) | No — fix authorization |
+| `404 Not Found` | Entity not in this workspace | No — check the ID |
+| `409 Conflict` | Duplicate slug, content hash already ingested | No — dedupe at the caller |
+| `422 Unprocessable Entity` | Pydantic validation, or `content` >100 KB on `/ingest` | No — fix payload |
+| `5xx` | Server error | **Yes** — exponential backoff, cap attempts |
+
+Async **job failures** surface the same error envelope in the job's `error` field. The envelope shape, with retry semantics:
+
+```json
+{
+  "error": {
+    "code": "LLM_RATE_LIMIT",
+    "message": "Upstream LLM provider rate limit exceeded.",
+    "cause": "OpenAI returned 429 on extraction call 3/12.",
+    "fix": "Retry the job after 30 seconds. If persistent, contact support.",
+    "docs_url": "https://docs.scipot.ai/api-reference/errors#llm_rate_limit",
+    "request_id": "req_01971abc-...",
+    "retryable": true
+  }
+}
+```
+
+Always log `request_id`. For any error reaching support, that's the first thing we'll ask for. Full code list with retry guidance: [API Reference → Errors](/api-reference/errors).
+
+## Retry with backoff (TypeScript shim)
+
+```typescript
+type ScipotError = {
+  code: string;
+  message: string;
+  fix: string;
+  request_id: string;
+  retryable: boolean;
+};
+
+async function call(url: string, opts: RequestInit, attempt = 0): Promise<Response> {
+  const res = await fetch(url, opts);
+  if (res.ok) return res;
+
+  const body = await res.json().catch(() => ({}));
+  const err: ScipotError = body.error ?? body.detail ?? null;
+  console.error(`[scipot] ${err?.code ?? res.status} req=${err?.request_id}`);
+
+  if (err?.retryable && attempt < 3) {
+    const retryAfter = parseInt(res.headers.get("Retry-After") ?? "1", 10);
+    await new Promise(r => setTimeout(r, retryAfter * 1000 * Math.pow(2, attempt)));
+    return call(url, opts, attempt + 1);
+  }
+  throw new Error(`${err?.code}: ${err?.message} — ${err?.fix} (req: ${err?.request_id})`);
+}
+```
+
+Same shape in Python:
+
+```python
+import httpx, time
+
+def call(method, url, attempt=0, **kwargs):
+    res = httpx.request(method, url, **kwargs)
+    if res.is_success:
+        return res
+    err = res.json().get("error") or res.json().get("detail") or {}
+    print(f"[scipot] {err.get('code', res.status_code)} req={err.get('request_id')}")
+    if err.get("retryable") and attempt < 3:
+        retry_after = int(res.headers.get("Retry-After", "1"))
+        time.sleep(retry_after * (2 ** attempt))
+        return call(method, url, attempt + 1, **kwargs)
+    raise RuntimeError(f"{err.get('code')}: {err.get('message')} — req: {err.get('request_id')}")
+```
+
+## Document size — choose the right pipeline
+
+The Quickstart uses `POST /pots/{pot_id}/ingest` (raw text in JSON body, **100 KB cap**). For anything larger, switch to the upload pipeline:
+
+| Source | Endpoint | Cap | Notes |
+|---|---|---|---|
+| Raw text in memory (snippets, ADR bodies, conversation summaries) | `POST /pots/{pot_id}/ingest` | **100 KB** | Returns 422 on oversize |
+| File (PDF, DOCX, PPTX, XLSX, HTML, MD, TXT) | `POST /documents/upload` then `POST /pots/{pot_id}/extract-from-document` | **50 MB** default (configurable) | MarkItDown auto-converts to Markdown; extraction is async |
+| Workspace cumulative | (enforced server-side) | **50 MB** default per workspace | Returns 429 with `QUOTA_STORAGE_EXCEEDED` |
+
+Two-step file upload pattern:
+
+```bash
+# 1. Upload the file (returns a document_id)
+curl -X POST "$SCIPOT_BASE/documents/upload" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE" \
+  -F "file=@./policies/return-policy.pdf"
+
+# 2. Extract facts from the stored document into your POT
+curl -X POST "$SCIPOT_BASE/pots/$POT_ID/extract-from-document" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE" \
+  -H "Content-Type: application/json" \
+  -d '{"document_id": "01971..."}'
+```
+
+The same uploaded document can be extracted into multiple POTs — useful when one source memo is canonical knowledge for several brains.
+
+## What to log
+
+Three values that turn a support ticket from 30 minutes to 2 minutes:
+
+1. **`X-Request-ID`** response header — present on every response. Echo it in your logs.
+2. **Job IDs** from any `202 Accepted` response. Polling history correlates with the request that started it.
+3. **The `code` field from any error envelope.** Codes are stable across versions; messages may evolve.
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Trust Mechanics" icon="shield-check" href="/trust-mechanics/pot-score-and-provenance">
+    POT Score & Provenance, Constitution, Curators, Contradiction Detection.
+  </Card>
+  <Card title="Errors" icon="triangle-exclamation" href="/api-reference/errors">
+    Full envelope shape and code list with retry guidance.
+  </Card>
+  <Card title="API Surface" icon="list" href="/api-reference/api-surface">
+    Every endpoint, grouped by purpose.
+  </Card>
+  <Card title="Changelog" icon="calendar" href="/changelog">
+    What shipped in 0.2.0 and what's coming.
+  </Card>
+</CardGroup>

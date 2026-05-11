@@ -85,6 +85,7 @@
       "group": "Get Started",
       "pages": [
         "get-started/quickstart",
+        "get-started/quickstart-advanced",
         "get-started/authentication"
       ]
     },

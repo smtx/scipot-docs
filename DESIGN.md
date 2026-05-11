@@ -397,13 +397,11 @@ Decision applied: option (b) — redirect all 9 references to docs.scipot.ai equ
 
 Zero broken `github.com/smtx/scipot-core` links remain in the public docs.
 
-### 2. HIGH — density on `get-started/quickstart.mdx`
+### 2. ~~HIGH — density on `get-started/quickstart.mdx`~~  ✅ RESOLVED 2026-05-11
 
-Currently 445 lines (longest page in the docs). For the 15-min-evaluator persona, this is too much above-the-fold.
+Split applied. Primary Quickstart now 373 lines (down from 445) — the 5-step happy path with curl/JS/Python tabs at every step, finishing on "Where to go next." The advanced material — curator promotion (SUPPORTED → VERIFIED), error handling reference with retry semantics, the document-size pipeline split, what-to-log guidance — moved to a new `/get-started/quickstart-advanced` page (193 lines).
 
-**Resolution:**
-- Split into two pages: `/get-started/quickstart` (the 5-min happy path: signup, create POT, ingest sample, query, see receipt) + `/get-started/quickstart-advanced` (multi-language code switcher, curation, production patterns).
-- Target: ≤180 lines for the primary Quickstart.
+The 180-line target wasn't hit; 373 reflects keeping all three language tabs on every step (cutting JS/Python from primary would degrade first-touch DX more than it'd reduce scroll fatigue). Accepting 373 as the new reality — meaningful improvement (16% shorter) without compromising the language-switcher value.
 
 ### 3. MEDIUM — tone unification across surfaces
 

@@ -359,87 +359,15 @@ If you don't have an API key yet, see [Authentication & API Keys →](/get-start
   </Step>
 </Steps>
 
-## Promote a fact to VERIFIED (optional)
-
-The retrieved facts came back at `SUPPORTED` (POT Score 0.72). That's because they were LLM-extracted from one document. Once a Human Curator has confirmed the policy is canonical, you can promote them:
-
-<CodeGroup>
-```bash curl
-curl -X POST "$SCIPOT_BASE/pots/$POT_ID/facts/$FACT_ID/curate" \
-  -H "X-API-Key: $SCIPOT_KEY" \
-  -H "X-Workspace-ID: $SCIPOT_WORKSPACE" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": "approve",
-    "promote_to_level": "VERIFIED",
-    "curator_id": "user_cto_001",
-    "rationale": "Confirmed against ADR-2026-014. This is the canonical retry policy."
-  }'
-```
-
-```javascript fetch
-await fetch(`${SCIPOT_BASE}/pots/${POT_ID}/facts/${FACT_ID}/curate`, {
-  method: "POST",
-  headers: {
-    "X-API-Key": SCIPOT_KEY,
-    "X-Workspace-ID": SCIPOT_WORKSPACE,
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    action: "approve",
-    promote_to_level: "VERIFIED",
-    curator_id: "user_cto_001",
-    rationale: "Confirmed against ADR-2026-014. This is the canonical retry policy.",
-  }),
-});
-```
-
-```python httpx
-httpx.post(
-    f"{base}/pots/{POT_ID}/facts/{FACT_ID}/curate",
-    headers=headers,
-    json={
-        "action": "approve",
-        "promote_to_level": "VERIFIED",
-        "curator_id": "user_cto_001",
-        "rationale": "Confirmed against ADR-2026-014. This is the canonical retry policy.",
-    },
-    timeout=10.0,
-)
-```
-</CodeGroup>
-
-Next time the same query runs, those facts will return with `pot_score: 0.92`, `level: "VERIFIED"`, and `provenance.curated_by: "user_cto_001"`.
-
-## Error handling (the parts the happy-path skips)
-
-In production, you should handle:
-
-- **`429 Too Many Requests`** — rate limit. Back off and retry with exponential delay. The `Retry-After` header tells you when.
-- **`401 Unauthorized`** — bad key or missing workspace header. Don't retry.
-- **`422 Unprocessable Entity`** — malformed payload, including `content` exceeding the 100 KB inline-text limit. Validate before sending.
-- **`5xx`** — server error. Retry with backoff, but cap attempts.
-- **Job `status: "failed"`** — surfaces an error envelope under `error`: `{code, message, cause, fix, docs_url, request_id, retryable}`. Log `request_id` for support.
-
-See [API Reference → Errors](/api-reference/errors) for the full envelope shape and code list.
-
-<Note>
-**Document size limits.** This Quickstart uses `POST /pots/{pot_id}/ingest`, which has a **100 KB cap on the inline `content` field** — appropriate for programmatic text snippets. For larger documents (PDFs, DOCX, large markdown files), use the upload pipeline instead: `POST /documents/upload` (default 50 MB cap, with auto-conversion to Markdown) followed by `POST /pots/{pot_id}/extract-from-document`. See the [Ingest domain knowledge](/guides/ingest-domain-knowledge) guide.
-</Note>
-
 ## Where to go next
 
+You just shipped the full happy path — signup-aware key, POT creation, ingest, query, receipt. From here, two directions:
+
 <CardGroup cols={2}>
-  <Card title="Ingest domain knowledge" icon="upload" href="/guides/ingest-domain-knowledge">
-    Beyond text snippets: upload PDFs, DOCX, PPTX, XLSX with auto-conversion.
+  <Card title="Quickstart — advanced" icon="layer-group" href="/get-started/quickstart-advanced">
+    Curator promotion (SUPPORTED → VERIFIED), production error handling, retry semantics, and document-size pipelines.
   </Card>
-  <Card title="Wire to Claude or GPT" icon="plug" href="/guides/wire-to-claude-or-gpt">
-    Make your existing agent actually query SciPot. Tool-call shims for both.
-  </Card>
-  <Card title="Curate facts" icon="hand-pointer" href="/guides/curate-facts">
-    Approve, disapprove, promote, demote. The Curator workflow in production.
-  </Card>
-  <Card title="Handle contradictions" icon="triangle-exclamation" href="/guides/handle-contradictions-in-production">
-    What to do when your agent surfaces unresolved sources.
+  <Card title="Trust Mechanics" icon="shield-check" href="/trust-mechanics/pot-score-and-provenance">
+    POT Score & Provenance, Constitution, Curators, Contradiction Detection — the moat, explained.
   </Card>
 </CardGroup>

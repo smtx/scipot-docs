@@ -6,3 +6,6 @@ node_modules/
 *.log
 .env
 .env.local
+
+# Mintlify dev compiles a runtime config — local artifact, not source of truth.
+docs.json

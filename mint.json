@@ -46,8 +46,8 @@
     }
   ],
   "topbarCtaButton": {
-    "name": "Get an API key",
-    "url": "https://scipot.ai#waitlist"
+    "name": "Get a free API key",
+    "url": "/get-started/authentication"
   },
   "anchors": [
     {

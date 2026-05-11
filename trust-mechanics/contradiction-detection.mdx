@@ -162,62 +162,77 @@ You can tune the thresholds per POT. Healthcare or legal POTs might run a tighte
 
 ## Resolution — what a Human Curator actually does
 
-When a contradiction lands in the review queue, the curator has four options:
+The resolution flow is anchored to the **CONTRADICTS edge** itself, not a separate review record. Each curator submits a **stance** on the edge (their proposed resolution); once an authoritative stance lands, the edge can be resolved.
 
-### 1. Keep A, demote B
+<Note>
+The stances / resolve surface is currently **experimental** — the response shape may evolve. Endpoints below are the real production paths under v0.2.0.
+</Note>
+
+### Submit a stance on the contradiction
 
 ```bash
-curl -X POST "https://api.scipot.ai/pots/{pot_id}/contradictions/{review_id}/resolve" \
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/edges/{edge_id}/stances" \
   -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE" \
+  -H "Content-Type: application/json" \
   -d '{
-    "resolution": "keep_a",
-    "demote_b": true,
-    "demote_b_to_level": "PENDING",
-    "curator_id": "user_cfo_001",
-    "rationale": "Fact A is from 2026 CFO-approved memo; Fact B is from a 2024 sales playbook that predates the policy change."
+    "position": "keep_a",
+    "rationale": "Fact A is from the 2026 CFO-approved memo; Fact B is from a 2024 sales playbook that predates the policy change.",
+    "curator_id": "user_cfo_001"
   }'
 ```
 
-Fact A stays at its current score. Fact B is demoted to PENDING (or whatever level the curator chose) and marked as `superseded_by` fact A.
+Common `position` values:
 
-### 2. Keep B, demote A
+- `"keep_a"` / `"keep_b"` — one fact stays, the other is demoted.
+- `"refine"` — both are true in different scopes; the system rewrites them with qualifiers and adds `REFINES` edges to a parent claim.
+- `"defer"` — neither is authoritative yet; both demoted (typically to `HYPOTHESIS`) until further input.
 
-Symmetric to the above.
+### Finalise the resolution
 
-### 3. Refine — both are true, but in different scopes
-
-When both facts are actually correct in different contexts:
-
-```bash
-curl -X POST "https://api.scipot.ai/pots/{pot_id}/contradictions/{review_id}/resolve" \
-  -H "X-API-Key: $SCIPOT_KEY" \
-  -d '{
-    "resolution": "refine",
-    "refinement_a": "Standard enterprise pricing floor is $25K ARR (2026 onward).",
-    "refinement_b": "Legacy enterprise contracts grandfathered at $50K floor (signed pre-2024).",
-    "curator_id": "user_cfo_001",
-    "rationale": "Both true, distinct scopes. Annotating to disambiguate."
-  }'
-```
-
-The CONTRADICTS edge is removed; both facts are rewritten with scope qualifiers; new `REFINES` edges link them to a parent claim.
-
-### 4. Defer — neither is authoritative yet
-
-When the contradiction reveals that *nobody knows* the truth:
+Once enough authoritative stances are in (single-Curator setups: one stance is enough), resolve the edge:
 
 ```bash
-curl -X POST "https://api.scipot.ai/pots/{pot_id}/contradictions/{review_id}/resolve" \
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/edges/{edge_id}/resolve" \
   -H "X-API-Key: $SCIPOT_KEY" \
-  -d '{
-    "resolution": "defer",
-    "demote_both_to_level": "HYPOTHESIS",
-    "curator_id": "user_cfo_001",
-    "rationale": "Pricing policy under active review. Both quotes are speculative until Q3 board decision."
-  }'
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE"
 ```
 
-Both facts get demoted, and the CONTRADICTS edge persists with `status: open_until_decision`. The contradiction stays visible to anyone querying.
+The chosen stance is applied: the loser fact is demoted (`level` drops, a `superseded_by` edge points to the winner), the CONTRADICTS edge is marked `resolved`, and a `CurationRecord` entry captures the action.
+
+### Inspect stances on an edge (audit + reasoning)
+
+```bash
+curl "https://api.scipot.ai/pots/{pot_id}/edges/{edge_id}/stances" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE"
+```
+
+Returns every stance ever submitted on this edge, with curator IDs, timestamps, and rationale — useful for audits months later.
+
+### Revert a resolution
+
+If a resolution turns out to be wrong (new evidence surfaces), revert:
+
+```bash
+curl -X DELETE "https://api.scipot.ai/pots/{pot_id}/edges/{edge_id}/resolve" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE"
+```
+
+Demotions are undone; the edge returns to `flagged_for_review`. The revert is itself audit-trailed.
+
+### Finding open contradictions
+
+There's no dedicated "queue" endpoint — instead, list edges with `type=CONTRADICTS` and filter unresolved:
+
+```bash
+curl "https://api.scipot.ai/pots/{pot_id}/edges?type=CONTRADICTS&resolved=false" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE"
+```
+
+Combine with priority logic (Constitution = critical, score ≥ 0.70 = high) in your own client to build a curator dashboard.
 
 ## How agents should handle contradictions
 

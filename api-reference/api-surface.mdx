@@ -1,0 +1,272 @@
+---
+title: "API Surface — endpoint overview"
+sidebarTitle: "API Surface"
+description: "Every endpoint in SciPot, grouped by purpose. Use this page as a map; click into the per-endpoint reference (auto-imported from OpenAPI) for full schemas and try-it consoles."
+---
+
+This page is the map. Each endpoint links into the auto-imported per-endpoint reference where you can see schemas, example payloads, and run a "Try It" call against the live API with your key.
+
+The full machine-readable spec lives at **[api.scipot.ai/openapi.json](https://api.scipot.ai/openapi.json)** and the classic Swagger UI is at **[api.scipot.ai/docs](https://api.scipot.ai/docs)**.
+
+---
+
+## Authentication & signup
+
+Self-serve, no contracts. Email magic-link verification gives you an `ik_live_*` key and a default workspace.
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/auth/signup` | Register a new integrator. Sends verification email. |
+| GET | `/auth/verify?token=…` | Exchange the email token for an API key (shown once). |
+| POST | `/auth/resend-verification` | Resend verification email for a pending account. |
+
+Full walkthrough: [Authentication →](/get-started/authentication).
+
+---
+
+## POTs (Knowledge Pots)
+
+A POT is a knowledge container with a Constitution. Most workflows start with `POST /pots`.
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/pots` | Create a POT from JSON (canonical). |
+| GET | `/pots` | List POTs in the workspace. |
+| GET | `/pots/{pot_id}` | Get a POT by UUID. |
+| GET | `/pots/by-slug/{slug}` | Get a POT by slug (workspace from `X-Workspace-ID`). |
+| DELETE | `/pots/{pot_id}` | Soft-delete a POT. |
+
+Concept: [Constitution →](/trust-mechanics/constitution).
+
+---
+
+## Facts
+
+Atomic claims with POT Score + provenance. Most retrieval lands here.
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/pots/{pot_id}/facts` | List facts with filters (score, domain, tags, status, document, sort, paginate). |
+| GET | `/pots/{pot_id}/facts/{fact_id}` | Get a single fact with full provenance. |
+| GET | `/pots/{pot_id}/facts/{fact_id}/with-edges` | Get a fact plus its incoming/outgoing edges. |
+| DELETE | `/pots/{pot_id}/facts/{fact_id}` | Delete a fact (cascades connected edges). |
+
+Concept: [POT Score & Provenance →](/trust-mechanics/pot-score-and-provenance).
+
+---
+
+## Document ingestion
+
+Two ingestion modes: inline text (JSON body) and file upload (multipart, with auto-conversion).
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/pots/{pot_id}/ingest` | Ingest raw text into a POT. Async, returns `job_id`. 100 KB inline cap. |
+| POST | `/documents/upload` | Upload a file (PDF, DOCX, PPTX, XLSX, HTML, MD, TXT) — auto-converted to Markdown. Default 50 MB. |
+| POST | `/pots/{pot_id}/extract-from-document` | Re-extract facts from a stored document into a (different) POT. |
+| GET | `/documents` | List documents in the workspace (pagination via cursor). |
+| GET | `/documents/{document_id}` | Document metadata + full content + extraction history. |
+| PATCH | `/documents/{document_id}` | Update document metadata (tags, author, etc.). |
+| DELETE | `/documents/{document_id}` | Delete document + its derived facts. |
+
+Quickstart: [end-to-end ingest example →](/get-started/quickstart#step-3-ingest-a-document).
+
+---
+
+## Constitution
+
+The axioms — POT Score = 1.0, immutable except via governance.
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/pots/{pot_id}/constitution/with-edges` | Get the Constitution with all edges between axioms. |
+| POST | `/pots/{pot_id}/constitution/facts` | Add a new Constitutional axiom (Human Curator action). |
+
+Concept: [Constitution →](/trust-mechanics/constitution).
+
+---
+
+## Edges (typed relationships)
+
+Five epistemic edge types + structural / causal / temporal / semantic categories. Drive POT Score propagation and contradiction detection.
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/pots/{pot_id}/edges` | List edges in a POT (filter by type, weight, fact). |
+| POST | `/pots/{pot_id}/edges` | Create edges manually (triggers score propagation). |
+| POST | `/pots/{pot_id}/edges/detect` | LLM-based edge detection vs the Constitution. |
+| GET | `/pots/{pot_id}/edges/from/{from_id}` | Outgoing edges from a fact. |
+| GET | `/pots/{pot_id}/edges/to/{to_id}` | Incoming edges to a fact. |
+| DELETE | `/pots/{pot_id}/edges/{from_id}/{to_id}/{edge_id}` | Delete a specific edge. |
+| POST | `/pots/{pot_id}/propagate` | Trigger POT Score propagation across the graph (run after bulk edge changes). |
+
+Concept: [Contradiction Detection →](/trust-mechanics/contradiction-detection).
+
+---
+
+## Contradiction resolution
+
+When two facts collide, the system flags. Humans resolve. The stances / resolve surface is **experimental** — shape may evolve.
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/pots/{pot_id}/edges/{edge_id}/stances` | Submit a stance on a CONTRADICTS edge (keep A, keep B, refine, defer). |
+| GET | `/pots/{pot_id}/edges/{edge_id}/stances` | List stances on the edge. |
+| POST | `/pots/{pot_id}/edges/{edge_id}/resolve` | Finalise the resolution (Curator action). |
+| DELETE | `/pots/{pot_id}/edges/{edge_id}/resolve` | Revert a resolution (audit-trailed). |
+
+Concept: [Contradiction Detection →](/trust-mechanics/contradiction-detection).
+
+---
+
+## Retrieval — Query, Search, CAG, Synthesis
+
+Four retrieval surfaces composed by the Hybrid Router.
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/pots/{pot_id}/query` | Unified query — Hybrid Router picks CAG / RAG / GraphRAG / a combo. Returns ranked facts + routing metadata. |
+| POST | `/pots/{pot_id}/synthesize` | Retrieve + LLM answer with epistemic briefing + cited facts + contradictions. |
+| POST | `/pots/{pot_id}/search` | Direct RAG semantic search via embeddings. |
+| POST | `/pots/{pot_id}/cag/search` | CAG keyword/entity search (<5 ms). |
+| POST | `/pots/{pot_id}/cag/warm` | Pre-load CAG cache for a POT. |
+| GET | `/pots/{pot_id}/cag/stats` | CAG cache statistics. |
+
+For most agent integrations, **`/synthesize` is the right endpoint** — it composes the full receipt-bearing response.
+
+---
+
+## Stats & visualisation
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/pots/{pot_id}/stats` | Aggregate POT statistics: fact counts by level, edge counts by type, ingestion totals. |
+| GET | `/pots/{pot_id}/graph` | Full knowledge graph for visualisation — nodes (facts) + edges with weights. |
+
+Use `/graph` to power your own knowledge-graph UI; SciPot returns a structure that maps cleanly to D3, Cytoscape, or React Flow.
+
+---
+
+## Contribution & curation
+
+Two roles: contributors (submit knowledge, expertise-weighted) and curators (approve, promote, govern).
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/pots/{pot_id}/facts/contribute` | Submit expert knowledge with declared expertise. Scored on contributor's domain authority. |
+| POST | `/pots/{pot_id}/facts/{fact_id}/curate` | Curator approves / disapproves / promotes a fact. Audit-trailed. |
+| GET | `/pots/{pot_id}/facts/{fact_id}/curations` | History of curation actions on a fact. |
+| DELETE | `/pots/{pot_id}/facts/{fact_id}/curations/{curation_id}` | Revoke a curation (audit-preserved). |
+
+Contributor registry (under workspaces):
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/integrator/workspaces/{ws}/contributors` | Register or update a contributor profile. |
+| GET | `/integrator/workspaces/{ws}/contributors` | List contributors in a workspace. |
+| GET | `/integrator/workspaces/{ws}/contributors/by-external/{external_id}` | Look up by your external user ID. |
+| GET | `/integrator/workspaces/{ws}/contributors/{contributor_id}` | Get a contributor with expertise + history. |
+| PATCH | `/integrator/workspaces/{ws}/contributors/{contributor_id}` | Update profile. |
+| POST | `/integrator/workspaces/{ws}/contributors/{contributor_id}/roles` | Add a role (contributor, curator). |
+| GET | `/integrator/workspaces/{ws}/contributors/{contributor_id}/roles` | Role history. |
+| GET | `/pots/{pot_id}/contributors/{contributor_id}/actions` | What did this contributor do in this POT? |
+
+Concept: [Curators →](/trust-mechanics/curators).
+
+---
+
+## Workspaces
+
+Each integrator can manage many workspaces. A workspace is the data boundary.
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/integrator/workspaces` | Create a workspace for a tenant. |
+| GET | `/integrator/workspaces` | List workspaces. |
+| GET | `/integrator/workspaces/{workspace_id}` | Get details with quotas + usage. |
+| DELETE | `/integrator/workspaces/{workspace_id}` | Deactivate a workspace (soft-delete). |
+| PATCH | `/integrator/workspaces/{workspace_id}/quotas` | Update token quota. |
+| POST | `/integrator/workspaces/{workspace_id}/token-topup` | Add bonus tokens to a workspace. |
+| POST | `/integrator/workspaces/{workspace_id}/token-reset` | Reset bonus tokens. |
+
+---
+
+## Usage & dashboard
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/integrator/dashboard` | Cross-workspace consumption dashboard for the integrator. |
+| GET | `/integrator/usage/summary` | Usage summary for the current workspace (`X-Workspace-ID`). |
+| GET | `/integrator/usage/workspaces` | Per-workspace usage across the integrator. |
+| GET | `/integrator/usage/token-quota` | Token quota status + remaining budget. |
+| POST | `/integrator/usage/events` | Record a custom usage event (advanced — usually automatic). |
+| DELETE | `/integrator/usage/workspace/{workspace_id}` | Reset usage counters for a workspace (admin). |
+
+These are the endpoints that power the SciPot dashboard you see at scipot.ai — and they're available to your own client if you want to build a per-tenant usage view inside your integrator UI.
+
+---
+
+## Billing (Stripe-managed)
+
+Self-serve. No sales calls, no contracts.
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/integrator/billing/checkout` | Open a Stripe Checkout session — upgrade plan. |
+| POST | `/integrator/billing/portal` | Open Stripe Customer Portal — manage cards, invoices, downgrade. |
+| POST | `/integrator/billing/token-topup` | Buy additional token quota without a plan change. |
+| POST | `/billing/webhook` | Stripe webhook receiver (Stripe → SciPot; you don't call this). |
+
+Each call returns a Stripe-hosted URL. Redirect the user there; subscription state changes propagate via the webhook within seconds.
+
+---
+
+## API keys (rotation, revocation)
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/integrators/{id}/api-keys` | Generate a new API key (shown once). |
+| GET | `/integrators/{id}/api-keys` | List your keys (values hidden, just metadata). |
+| DELETE | `/integrators/{id}/api-keys/{key_id}` | Revoke a key (effective within seconds). |
+
+---
+
+## Jobs
+
+Async operations return a `job_id`. Poll the jobs API for status.
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/jobs/{job_id}` | Status + progress + result (or error envelope). |
+| GET | `/jobs` | List recent jobs in the workspace. |
+
+Webhook notifications for completed jobs are coming (milestone M22). Today, polling is the official path — 1–5 s interval is fine.
+
+---
+
+## Health & ops
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/health` | Liveness probe. Returns 200 if the server is running. |
+| GET | `/ready` | Readiness probe. Checks storage + vector store + LLM provider connectivity. |
+
+Useful for monitoring dashboards (UptimeRobot, Better Uptime, etc.).
+
+---
+
+## Vector store debug (advanced)
+
+For when retrieval isn't returning what you expect.
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/pots/{pot_id}/vector-debug` | Inspect what's actually in the vector store for this POT. |
+| POST | `/pots/{pot_id}/vectors/reindex` | Re-index a POT's facts (re-embed everything). |
+| DELETE | `/pots/vectors/reset` | Nuclear option — reset all vectors (admin). |
+
+---
+
+<Note>
+**Auto-imported per-endpoint reference.** Every endpoint above is also rendered with full schemas, request/response examples, and a "Try It" console in the auto-imported sections of this docs site. Use this page as a map; click in for the contract.
+</Note>

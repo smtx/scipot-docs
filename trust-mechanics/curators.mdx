@@ -187,42 +187,30 @@ The Agentic Curator's defaults are designed to be cautious — it never silently
 
 If you want the Agentic Curator to be more or less aggressive, that's a per-POT configuration. The defaults are conservative because the asymmetric cost of mistakes — silently corrupting a Company Brain is much more expensive than missing a borderline promotion.
 
-## The review queue
+## Finding what needs curator attention
 
-Curators-in-practice spend most of their time in the review queue: a stream of items the Agentic Curator has surfaced for human judgment.
+There's no single "queue" endpoint — instead, the existing edges and facts endpoints are filtered to surface what a curator should look at:
 
 ```bash
-curl -X GET "https://api.scipot.ai/pots/{pot_id}/curation/queue?priority=high,critical" \
-  -H "X-API-Key: $SCIPOT_KEY"
+# Open contradictions: list CONTRADICTS edges that aren't resolved yet
+curl "https://api.scipot.ai/pots/{pot_id}/edges?type=CONTRADICTS&resolved=false" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE"
+
+# Promotion candidates: facts above a score threshold but not yet VERIFIED
+curl "https://api.scipot.ai/pots/{pot_id}/facts?min_pot_score=0.80&max_pot_score=0.85&status=ready" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE"
+
+# Recent contributor submissions awaiting curation
+curl "https://api.scipot.ai/pots/{pot_id}/facts?sort_by=created_at&sort_order=desc&limit=50&status=ready" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE"
 ```
 
-Returns items like:
+Combine these into your own internal curator dashboard, or use SciPot's own `GET /integrator/dashboard` and `GET /integrator/usage/summary` for a workspace-wide view of what's pending.
 
-```json
-{
-  "queue": [
-    {
-      "id": "review-001",
-      "type": "contradiction",
-      "priority": "critical",
-      "fact_a": { "id": "...", "content": "Pricing floor is $25K ARR.", "pot_score": 0.95 },
-      "fact_b": { "id": "...", "content": "Pricing floor is $50K ARR.", "pot_score": 0.78 },
-      "edge": { "type": "CONTRADICTS", "weight": 0.92 },
-      "rationale": "Both facts are about Acme pricing floor but disagree."
-    },
-    {
-      "id": "review-002",
-      "type": "promotion_candidate",
-      "priority": "normal",
-      "fact": { "id": "...", "content": "...", "pot_score": 0.82 },
-      "rationale": "Score crossed 0.80 threshold; eligible for Human-validated VERIFIED promotion."
-    }
-  ],
-  "total": 12
-}
-```
-
-A good curation workflow: queue review → resolve → recompute → move on. Time-boxed weekly is realistic for a small team; daily is realistic for a large one.
+A good curation workflow: filter for the queue → resolve / promote / disapprove → recompute → move on. Time-boxed weekly is realistic for a small team; daily for a large one.
 
 ---
 

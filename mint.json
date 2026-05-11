@@ -56,6 +56,11 @@
       "url": "api-reference"
     },
     {
+      "name": "Colab Playground",
+      "icon": "rocket",
+      "url": "https://colab.research.google.com/gist/smtx/b0dceb963d3efabfa8fdd9fbf1772729"
+    },
+    {
       "name": "GitHub",
       "icon": "github",
       "url": "https://github.com/smtx/scipot-core"
@@ -102,6 +107,7 @@
       "group": "API Reference",
       "pages": [
         "api-reference/introduction",
+        "api-reference/api-surface",
         "api-reference/errors",
         "api-reference/versioning"
       ]

@@ -1,0 +1,116 @@
+---
+title: "SciPot vs Mem0, Zep, and OpenAI File Search"
+sidebarTitle: "vs Mem0 / Zep / OpenAI File Search"
+description: "Honest tradeoffs. When SciPot is the right tool — and the cases where one of the alternatives is genuinely better."
+---
+
+If you're shopping for a memory layer for AI agents, you're probably also looking at Mem0, Zep, and OpenAI Assistants File Search. They're all in the same neighborhood: they help agents remember and retrieve. They take different bets on *what kind* of remembering matters.
+
+This page is our honest comparison. We tell you where each tool wins, including where we'd pick one of the others over SciPot. If a vendor's comparison page only ever has them winning every row, the comparison page is marketing — not a tool you can decide with.
+
+## The headline
+
+| | Mem0 | Zep | OpenAI File Search | **SciPot** |
+|---|---|---|---|---|
+| **Best at** | Chat-session memory, fast setup, SDK ergonomics | Temporal knowledge graphs, agent-session memory | Bundled retrieval inside OpenAI's stack | **Auditable fact memory with scores, sources, and contradiction handling** |
+| **Unit of memory** | Conversation messages / memories | Episodes / facts in temporal graph | File chunks | **Atomic facts with POT Score + provenance** |
+| **Certainty layer** | None (similarity only) | None | None | **POT Score 0.0–1.0, propagated through edges** |
+| **Source provenance** | Conversation ID | Episode metadata | File ID | **Per-fact: document, section, author, date, reliability** |
+| **Contradiction handling** | None (silent overwrite) | Time-based supersession | None | **Typed edges, flag-only, Human Curator workflow** |
+| **Foundational axioms** | None | None | None | **Constitution (POT Score = 1.0, governance-only changes)** |
+| **Knowledge graph** | No | Yes (temporal) | No | **Yes (5 epistemic + 4 structural + 4 causal + 4 temporal + 4 semantic edge types)** |
+| **Multi-language SDKs** | Python, JS, Go | Python, TS, Go | Python, TS, many | **Curl + fetch + httpx (handwritten) today; SDKs M26+** |
+| **Self-hosted option** | Yes | Yes | No | Planned (post-M26) |
+| **Pricing model** | Per-memory + per-API-call | Per-event + storage | Bundled with OpenAI usage | Per-workspace + per-API-call (TBA) |
+| **Maturity** | Production-deployed, well-funded | Production-deployed, well-funded | GA inside OpenAI's stack | **Pre-product API access (managed onboarding)** |
+
+## Mem0 — when it's the right answer
+
+[Mem0](https://mem0.ai/) is the leader in **chat-shaped memory**. If you're building an agent where the primary thing to remember is "what we discussed earlier in this thread" and "what the user told me about themselves over multiple sessions" — Mem0 is the cleanest, fastest, most-deployed answer.
+
+**Mem0 wins when:**
+
+- Your unit of memory is a conversation turn or a user preference.
+- Setup speed matters more than audit depth (5-minute integration).
+- You don't need certainty scores or provenance — *"the user said this in session 3"* is enough.
+- You want a Python/JS SDK that just works, with examples for every major framework (LangChain, LlamaIndex, OpenAI Assistants).
+
+**SciPot wins when:**
+
+- Your unit of memory is a fact about your domain, not a conversation about a user.
+- You need to know *why* an agent answered a particular way (sources, scores, derivation chain).
+- You have a domain expert whose word should outweigh the LLM's extraction.
+- A wrong answer has consequences worth audit-trailing.
+
+**Why both could coexist:** A real production agent might use Mem0 for "what the user said in this conversation" and SciPot for "what's true about our products." Different shapes of memory, different tools.
+
+## Zep — when it's the right answer
+
+[Zep](https://www.getzep.com/) is the most mature **temporal knowledge graph** for AI agents. Their model is sophisticated: entities, relationships, temporal validity, supersession. If you've outgrown vector-store-as-memory but aren't ready for a full graph DB, Zep is the well-engineered middle ground.
+
+**Zep wins when:**
+
+- You need to track how facts change over time (entity-relationship-as-of-date queries).
+- Your agent's memory shape is closer to "what's true about *this user* right now" than "what's true about *our domain* in general."
+- You want a graph without writing graph queries — Zep abstracts the graph operations away.
+- You're betting on temporal supersession as the right model for keeping memory fresh.
+
+**SciPot wins when:**
+
+- You need *epistemic* edges (SUPPORTS, CONTRADICTS, REFINES, DERIVES_FROM) — relationships about *truth*, not just *time*.
+- You need contradiction detection that flags rather than silently supersedes.
+- Your domain has foundational axioms (the Constitution) that should never be silently updated.
+- You need expertise-weighted contributions (a domain expert's claim should be scored differently from an LLM extraction).
+
+**Honest assessment:** Zep is closer to SciPot than Mem0 is — both are graph-shaped, both have provenance at the fact level. The biggest functional difference is **what edges mean**. Zep's edges encode *temporal and entity relationships*; SciPot's epistemic edges encode *epistemological relationships* (does A *support*, *contradict*, *refine* B?). If you need both, build with SciPot. If you need only temporal, Zep is purpose-built and has a longer track record.
+
+## OpenAI Assistants File Search — when it's the right answer
+
+[File Search](https://platform.openai.com/docs/assistants/tools/file-search) is OpenAI's bundled retrieval tool inside the Assistants API. You upload files, OpenAI chunks and vectorizes them, an Assistant can retrieve passages during a conversation. Zero infrastructure on your side.
+
+**File Search wins when:**
+
+- You're already committed to OpenAI as your model + tooling stack.
+- The shape of your memory is "documents I uploaded; retrieve passages similar to user query."
+- You don't want to run *any* memory infrastructure — File Search is bundled into the Assistant.
+- You're prototyping and "good enough retrieval" is the bar.
+
+**SciPot wins when:**
+
+- You want model independence (use Claude, GPT, Gemini, open models — SciPot is provider-agnostic).
+- You need fact-level retrieval, not passage-level. (An OpenAI File Search returns "this passage mentions pricing"; SciPot returns "this specific atomic fact about pricing, with its score and source.")
+- You need contradiction handling. (File Search returns whatever passages are similar; if three of them disagree, the Assistant smooths the disagreement away.)
+- You need an audit trail outside OpenAI's logs.
+
+**Honest assessment:** If you're building an OpenAI Assistant for a non-critical use case (internal demo, employee productivity, simple Q&A), File Search will get you 80% of the value of SciPot in 20% of the setup time. **The "where File Search fails" answer is: production agents where wrong answers cost real money or trust.** That's the bar where SciPot's complexity pays for itself.
+
+## Cases where the answer is "none of the above"
+
+A few patterns where you don't need any of these tools:
+
+- **Stateless single-turn agents** that fit in the LLM's context window. Don't add infrastructure you don't need.
+- **Pure semantic search over a static corpus** (e.g., a docs search engine). Use Pinecone, Weaviate, or pgvector. They're cheaper and equally good at that specific shape.
+- **Data warehouse queries** (your agent answers questions about structured business data). Use Text-to-SQL against your warehouse. None of these memory layers are the right tool.
+- **Conversation history persistence with no derived knowledge.** A simple Postgres `conversations` table is honest and adequate.
+
+## The bottom line
+
+We built SciPot because we believed two things were true:
+
+1. **Memory is the unsolved layer of the agentic economy.** Other tools were solving slices (chat memory, temporal graphs, file retrieval); none was solving *fact memory with epistemic structure and a human-curation workflow*.
+2. **The cost of wrong answers grows as agents move into production.** A demo can paper over hallucinations; a production agent recommending trades, dosages, contract terms, or engineering decisions can't.
+
+If those two beliefs match your situation, SciPot is the most differentiated choice in the category. If they don't, Mem0, Zep, or File Search will get you to value faster.
+
+We'd rather you pick the right tool for your problem than the most marketed one. That's why this page exists.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Why SciPot exists" icon="book-open" href="/big-picture/why-scipot-exists">
+    The thesis behind the choice.
+  </Card>
+  <Card title="When to use SciPot" icon="circle-question" href="/big-picture/when-to-use-scipot">
+    Smell tests to decide if SciPot is your fit.
+  </Card>
+</CardGroup>

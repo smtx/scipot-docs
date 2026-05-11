@@ -1,0 +1,83 @@
+---
+title: "The trust layer between your data and AI Agents"
+sidebarTitle: "Welcome"
+description: "Build Company Brains your AI Agents can trust. Every fact has a score. Every score has a source. Every contradiction is flagged."
+mode: "wide"
+---
+
+# The trust layer between your data and AI Agents.
+
+**Build Company Brains your AI Agents can trust.**
+
+Every fact has a score. Every score has a source. Every contradiction is flagged.
+
+<CardGroup cols={2}>
+  <Card title="Build an Agent in 5 min" icon="rocket" href="/get-started/quickstart">
+    Curl, JavaScript, or Python — pick your stack and ship an agent with persistent, scored memory.
+  </Card>
+  <Card title="Why SciPot exists" icon="book-open" href="/big-picture/why-scipot-exists">
+    The thesis: organizational intelligence doesn't accumulate — it evaporates. Memory is what's missing.
+  </Card>
+</CardGroup>
+
+---
+
+## What is SciPot?
+
+SciPot is **Memory-as-a-Service** for the agentic economy. You feed it documents, conversations, and structured data. It transforms them into **POTs** — Knowledge Pots — where every fact carries a numeric POT Score (Proof of Truth), every score traces to a source, and every contradiction is detected and flagged.
+
+Your AI agents query SciPot and receive answers with **receipts**: cited facts, certainty levels, and an epistemic briefing of what the answer is confident about versus where coverage is thin.
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/synthesize" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What did we decide about pricing for enterprise?",
+    "include_epistemic_briefing": true
+  }'
+```
+
+Response includes the synthesized answer, the facts used, their POT Scores, source provenance, and any contradictions detected during synthesis.
+
+---
+
+## Why this is different
+
+| | Vector stores (Pinecone, etc.) | Memory layers (Mem0, Zep) | **SciPot** |
+|---|:-:|:-:|:-:|
+| Stores chunks of text | ✅ | ✅ | — |
+| Stores extracted **facts** with explicit identity | — | partial | ✅ |
+| Numeric certainty per fact (0.0–1.0) | — | — | ✅ |
+| Source provenance preserved at fact level | — | partial | ✅ |
+| Contradictions detected & flagged | — | — | ✅ |
+| Foundational axioms (Constitution) | — | — | ✅ |
+| Knowledge graph with typed epistemic edges | — | partial | ✅ |
+| Human + Agentic Curator workflow | — | — | ✅ |
+
+Full breakdown: [SciPot vs Mem0 / Zep / OpenAI File Search →](/comparisons/vs-mem0-zep-openai-file-search)
+
+---
+
+## Start exploring
+
+<CardGroup cols={2}>
+  <Card title="Big Picture" icon="compass" href="/big-picture/why-scipot-exists">
+    Why we built this, how it works, when it's the right tool.
+  </Card>
+  <Card title="Trust Mechanics" icon="shield-check" href="/trust-mechanics/pot-score-and-provenance">
+    POT Score, Constitution, Curators, contradictions — the moat, explained.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Every endpoint, schema, and error code. Auto-generated from OpenAPI.
+  </Card>
+  <Card title="Guides" icon="map" href="/guides/build-your-first-company-brain">
+    Build an agent, ingest a domain, curate facts, handle contradictions.
+  </Card>
+</CardGroup>
+
+---
+
+<Note>
+**API key access.** During Phase 1, API keys are issued through the waitlist at [scipot.ai](https://scipot.ai). Direct self-serve (`sk_live_`) keys are coming with milestone M26. If you're building something interesting, [tell us about it](mailto:hello@scipot.ai) and we'll fast-track you.
+</Note>

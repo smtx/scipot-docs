@@ -1,0 +1,141 @@
+---
+title: "Versioning"
+sidebarTitle: "Versioning"
+description: "SciPot's API stability promise, breaking-change policy, deprecation headers, and migration patterns. Read once; refer back when a header shows up."
+---
+
+The SciPot API is currently at version **v1**. We follow a versioning model designed to be honest about what's changing, give you enough notice to migrate, and never silently break production code.
+
+## The promise
+
+For any endpoint exposed in v1, we commit to:
+
+- **No silent breaking changes.** A field's meaning, type, or required-vs-optional status will not change inside v1 without explicit deprecation headers and a notice period.
+- **Additive changes are normal.** New optional fields on requests, new fields on responses, new endpoints, new enum values — these happen continuously and do not require a version bump. Your code should ignore unknown fields gracefully.
+- **Breaking changes get a version bump.** Anything that would break correctly-written v1 code goes into v2 with parallel availability during the migration window.
+
+## What counts as a breaking change
+
+| Change | Breaking? | Where it goes |
+|---|---|---|
+| Add a new optional field to a request | No | v1 (additive) |
+| Add a new field to a response | No | v1 (additive) |
+| Add a new endpoint | No | v1 (additive) |
+| Add a new value to an enum | No | v1 (additive — your code should ignore unknown values) |
+| Remove a deprecated field | **Yes** | v2 |
+| Change a field's type | **Yes** | v2 |
+| Change a field from optional to required | **Yes** | v2 |
+| Remove an endpoint | **Yes** | v2 (after deprecation window) |
+| Remove or rename an enum value | **Yes** | v2 |
+| Change the meaning of an error code | **Yes** | v2 (we'd rather add a new code) |
+| Change HTTP status code for an existing scenario | **Yes** | v2 |
+
+## Headers you'll see
+
+The API returns three version-related response headers. Log them; act on them when present.
+
+### `X-API-Version`
+
+Echoes the version that handled the request:
+
+```http
+X-API-Version: v1
+```
+
+Useful when you're inspecting logs to confirm which version a client called. Always present.
+
+### `Deprecation`
+
+Present when the endpoint or a field your request used is deprecated. Contains an RFC3339 date for when deprecation started:
+
+```http
+Deprecation: 2026-05-01T00:00:00Z
+```
+
+If you see this header, plan migration before the `Sunset` date. We never remove a deprecated thing without setting this header at least 90 days before.
+
+### `Sunset`
+
+Present alongside `Deprecation`. Contains the date when the endpoint/field will be removed:
+
+```http
+Sunset: 2026-08-01T00:00:00Z
+```
+
+Standard window: **90 days from `Deprecation` to `Sunset`** for fields and minor endpoint changes; **180 days** for whole-endpoint removals. We may extend a window but never shorten it.
+
+Code to surface these in your logs:
+
+```typescript
+const res = await fetch(url, opts);
+const deprecation = res.headers.get("Deprecation");
+const sunset = res.headers.get("Sunset");
+if (deprecation) {
+  console.warn(`[scipot] DEPRECATED since ${deprecation}, sunset ${sunset} — ${res.url}`);
+}
+```
+
+## Deprecation lifecycle
+
+The full lifecycle of a deprecated endpoint or field:
+
+1. **Day 0**: The replacement ships. The old version continues working unchanged.
+2. **Day 0**: We add the `Deprecation` and `Sunset` headers to responses involving the old version. We post in the [changelog](/changelog) and email integrators we know are using it.
+3. **Day 0 to Day 60**: Migration window. Both old and new work. Your team migrates at its own pace.
+4. **Day 60**: Reminder email to integrators still using the deprecated version (we can see this from request logs).
+5. **Day 75**: Second reminder, this time including the specific `request_id`s and dates of recent calls hitting the deprecated version.
+6. **Day 90 (or 180 for whole endpoints)**: Removal. The old version starts returning `410 Gone` with `error.code: "VERSION_SUNSET"`.
+
+The point: by the time we sunset something, you've had at least 90 days, three notices, and per-request headers on every call. The only way to be surprised by a v1 deprecation is to ignore the headers and the emails — please don't.
+
+## v1 → v2 migration (when it happens)
+
+When v2 ships, you'll see it announced in advance. Concretely:
+
+- **Both versions served in parallel** for the migration window (typically 6–12 months for major versions).
+- **Routes differentiate by URL prefix**: `https://api.scipot.ai/v2/pots/...` for v2, current routes remain v1.
+- **A `Migration Guide` page** lives at `/api-reference/v1-to-v2-migration` describing every change with before/after examples.
+- **`X-API-Version: v1` on responses to old routes**, `X-API-Version: v2` on new routes.
+- **Sunset of v1** announced no less than 6 months in advance, with extensions possible if migration friction is unexpectedly high.
+
+We have not yet shipped v2 — this section describes the policy. When v2 lands, the migration guide will live alongside this page.
+
+## Stability tiers within v1
+
+Not every endpoint in v1 is at the same maturity level. We use **stability tags** in per-endpoint docs:
+
+- **`stable`**: Production-grade. Backed by the full v1 stability promise.
+- **`beta`**: Functionally complete but may evolve in minor breaking ways with 30-day notice. Use in production at your own pace; we don't recommend it for the critical path.
+- **`experimental`**: We're trying out the shape. May change or be removed at any time. We'll warn you before silently breaking it but can't promise the 90-day window.
+
+Most endpoints in v1 are `stable`. Endpoints under active development (e.g., new retrieval strategies, new curator workflows) may be `beta` or `experimental` — check the per-endpoint docs.
+
+## What we won't change in v1, ever
+
+A few things are load-bearing enough that we'd ship v2 before touching them:
+
+- **The POT Score scale (0.0–1.0)** and the Constitution=1.0 semantic. Whole sections of customer documentation assume this; changing it would break trust.
+- **The 6-tier internal `PotScoreLevel` enum** (`CONSTITUTION` / `VERIFIED` / `SUPPORTED` / `INFERRED` / `HYPOTHESIS` / `SPECULATION`). Returned in `level` fields across many endpoints.
+- **The five epistemic edge types** (`SUPPORTS`, `CONTRADICTS`, `REFINES`, `DERIVES_FROM`, `IS_PART_OF`).
+- **UUIDv7 as the identifier format** for all entities.
+- **The error envelope shape** (`code`, `message`, `cause`, `fix`, `docs_url`, `request_id`, `retryable`).
+
+If we need to change one of these, v2 is the only honest path.
+
+## Changelog
+
+The [Changelog](/changelog) lists every API change — additive, deprecation, sunset. Subscribe via RSS or email digest at the changelog page. Two principles:
+
+- **Every breaking change has a changelog entry.** If you find a breaking change without one, that's our bug — tell us.
+- **Every entry has a date, a description, an example before/after, and a link to the relevant docs.**
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Errors" icon="triangle-exclamation" href="/api-reference/errors">
+    Error envelope, full code list, retry semantics.
+  </Card>
+  <Card title="Introduction" icon="book-open" href="/api-reference/introduction">
+    Base URL, conventions, request shape, pagination, identifiers.
+  </Card>
+</CardGroup>

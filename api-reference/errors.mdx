@@ -1,0 +1,207 @@
+---
+title: "Errors"
+sidebarTitle: "Errors"
+description: "Standard error envelope: code, message, cause, fix, docs_url, request_id, retryable. Full code list with the action to take for each."
+---
+
+Every error response from the SciPot API uses the same envelope shape. If you handle this envelope once, you handle every error.
+
+## The envelope
+
+Errors return an HTTP status code (`4xx` or `5xx`) and a JSON body with this shape:
+
+```json
+{
+  "error": {
+    "code": "QUOTA_STORAGE_EXCEEDED",
+    "message": "Workspace storage quota exceeded.",
+    "cause": "Workspace 01971abc-... has 5,230 MB of stored content; the plan limit is 5,000 MB.",
+    "fix": "Delete unused documents or POTs, or upgrade the workspace plan.",
+    "docs_url": "https://docs.scipot.ai/api-reference/errors#quota_storage_exceeded",
+    "request_id": "req_01971xyz-...",
+    "retryable": false
+  }
+}
+```
+
+Every field has a job:
+
+| Field | Purpose | Always present? |
+|---|---|---|
+| `code` | Stable, machine-readable error identifier. Use for routing logic. | Yes |
+| `message` | Short human-readable summary. Safe to surface to end users. | Yes |
+| `cause` | Specific underlying reason, with concrete values where possible. Useful for debugging; usually not safe to expose to end users (may contain workspace/key identifiers). | Often |
+| `fix` | The action to take to resolve. Written so a developer reading it can act without filing a support ticket. | Yes (when one exists) |
+| `docs_url` | Deep link to the relevant docs section. | Yes |
+| `request_id` | Trace identifier. Include it in any support request. | Yes |
+| `retryable` | `true` if the operation is safe to retry (rate limits, transient 5xx). `false` if retrying would be useless (auth errors, validation errors, quota). | Yes |
+
+The same envelope is used by **async job failures**: `GET /jobs/{job_id}` for a failed job returns `status: "failed"` with an `error` object matching this shape.
+
+## How to handle errors in code
+
+A correct error handler does four things:
+
+1. **Read `retryable`.** If false, don't retry — fix the problem at the source.
+2. **Honor `Retry-After`** if the status is `429` (rate limit) or `503` (overloaded).
+3. **Log `request_id`.** This is what we'll ask for in support.
+4. **Surface `fix` to your team's logs/dashboards**, not necessarily to end users. End users see `message`; on-call engineers see `cause`, `fix`, and `request_id`.
+
+Example handler in TypeScript:
+
+```typescript
+type ScipotError = {
+  code: string;
+  message: string;
+  cause?: string;
+  fix: string;
+  docs_url: string;
+  request_id: string;
+  retryable: boolean;
+};
+
+async function callScipot(url: string, opts: RequestInit, attempt = 0): Promise<Response> {
+  const res = await fetch(url, opts);
+  if (res.ok) return res;
+
+  const body = await res.json().catch(() => ({}));
+  const err: ScipotError = body.error ?? {
+    code: "UNKNOWN", message: "Unparseable error", fix: "Inspect raw response", docs_url: "", request_id: "", retryable: false,
+  };
+
+  console.error(`[scipot] ${err.code} req=${err.request_id} fix=${err.fix}`);
+
+  if (err.retryable && attempt < 3) {
+    const retryAfter = parseInt(res.headers.get("Retry-After") ?? "1", 10);
+    await new Promise((r) => setTimeout(r, retryAfter * 1000 * Math.pow(2, attempt)));
+    return callScipot(url, opts, attempt + 1);
+  }
+
+  throw new Error(`scipot ${err.code}: ${err.message} — ${err.fix} (req: ${err.request_id})`);
+}
+```
+
+Equivalent in Python:
+
+```python
+import httpx, time
+
+class ScipotError(Exception):
+    def __init__(self, code, message, fix, request_id):
+        self.code = code
+        self.message = message
+        self.fix = fix
+        self.request_id = request_id
+        super().__init__(f"{code}: {message} — {fix} (req: {request_id})")
+
+def call_scipot(method, url, attempt=0, **kwargs):
+    res = httpx.request(method, url, **kwargs)
+    if res.is_success:
+        return res
+
+    body = res.json() if res.content else {}
+    err = body.get("error", {})
+    print(f"[scipot] {err.get('code', 'UNKNOWN')} req={err.get('request_id')} fix={err.get('fix')}")
+
+    if err.get("retryable") and attempt < 3:
+        retry_after = int(res.headers.get("Retry-After", "1"))
+        time.sleep(retry_after * (2 ** attempt))
+        return call_scipot(method, url, attempt + 1, **kwargs)
+
+    raise ScipotError(
+        err.get("code", "UNKNOWN"),
+        err.get("message", "Unknown error"),
+        err.get("fix", "Contact support"),
+        err.get("request_id", ""),
+    )
+```
+
+## Code reference
+
+Codes are stable across versions. We never repurpose a code; we may add new ones.
+
+### Auth (`AUTH_*`) — never retryable
+
+| Code | HTTP | Cause | Fix |
+|---|---|---|---|
+| `AUTH_MISSING_KEY` | 401 | No `X-API-Key` header. | Add the header. |
+| `AUTH_INVALID_KEY` | 401 | Key not recognized, revoked, or expired. | Check the key. If it should be valid, the integrator may have rotated; check the dashboard. |
+| `AUTH_WORKSPACE_MISMATCH` | 401 | The `X-Workspace-ID` does not belong to this integrator. | Check the workspace ID. Different integrator? Different workspace. |
+| `AUTH_FORBIDDEN` | 403 | Valid key, but lacking permission for the operation (e.g., Curator action without Curator role). | Check the integrator's permissions. Some actions require elevated roles. |
+
+### Rate limiting (`RATE_*`) — retryable, honor `Retry-After`
+
+| Code | HTTP | Cause | Fix |
+|---|---|---|---|
+| `RATE_LIMITED` | 429 | Per-integrator request rate exceeded. | Back off per `Retry-After`. Use exponential backoff for sustained pressure. |
+| `RATE_CONCURRENT_JOBS` | 429 | Too many concurrent ingestion jobs in this workspace. | Wait for current jobs to complete; raise concurrent-job limit during onboarding. |
+
+### Validation (`VALIDATION_*`) — never retryable
+
+| Code | HTTP | Cause | Fix |
+|---|---|---|---|
+| `VALIDATION_BODY` | 422 | Request body failed schema validation. Includes `POST /pots/{pot_id}/ingest` where `content` exceeds the 100 KB inline-text limit. | `cause` lists which fields. For oversize text, switch to the document-upload pipeline (`POST /documents/upload` → `POST /pots/{pot_id}/extract-from-document`). |
+| `VALIDATION_PARAMETER` | 422 | Query parameter or path parameter invalid. | `cause` names the parameter. |
+| `VALIDATION_PAYLOAD_TOO_LARGE` | 413 | Request body exceeds size limit. Applies to `POST /documents/upload` (default 50 MB cap, configurable). | Reduce file size or contact us to raise the cap. |
+| `VALIDATION_UNSUPPORTED_MEDIA` | 415 | `Content-Type` not supported for this endpoint. | Use `application/json` for body endpoints; `multipart/form-data` for uploads. |
+
+### Resource (`RESOURCE_*`) — usually not retryable
+
+| Code | HTTP | Cause | Fix |
+|---|---|---|---|
+| `RESOURCE_NOT_FOUND` | 404 | Entity does not exist or is outside this workspace. | Check the ID. Workspace scoping may be the cause. |
+| `RESOURCE_CONFLICT` | 409 | Conflicting state: duplicate slug, content hash already exists, etc. | `cause` names the conflict. Decide intent: dedupe or reject. |
+| `RESOURCE_GONE` | 410 | Entity was hard-deleted or workspace deactivated. | Cannot recover. |
+
+### Quota (`QUOTA_*`) — never retryable without action
+
+| Code | HTTP | Cause | Fix |
+|---|---|---|---|
+| `QUOTA_STORAGE_EXCEEDED` | 402 | Workspace storage exceeds plan limit. | Delete content or upgrade. |
+| `QUOTA_DOCUMENTS_EXCEEDED` | 402 | Documents-per-POT limit reached. | Archive old documents or upgrade. |
+| `QUOTA_POTS_EXCEEDED` | 402 | POTs-per-workspace limit reached. | Delete unused POTs or upgrade. |
+| `QUOTA_QUERIES_EXCEEDED` | 402 | Monthly query allowance exhausted. | Upgrade or wait for reset. |
+
+### LLM (`LLM_*`) — retryable when noted
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `LLM_RATE_LIMIT` | 429 | OpenAI (or other provider) rate limit. | Honor `Retry-After`. SciPot does not bypass provider limits. | Yes |
+| `LLM_TIMEOUT` | 504 | LLM call exceeded timeout. | Retry. Provider was slow. | Yes |
+| `LLM_INVALID_RESPONSE` | 502 | LLM returned content the parser couldn't decode (rare). | Retry once. If persistent, file an issue with the `request_id`. | Yes (once) |
+| `LLM_CONTENT_POLICY` | 422 | The LLM provider's content policy refused the request (e.g., extraction prompt flagged). | Inspect input. Sometimes the document content triggers this. | No |
+| `LLM_QUOTA` | 402 | LLM provider quota exhausted on SciPot's side. | Cannot retry; contact SciPot support. | No |
+
+### Server (`INTERNAL_*`) — retryable
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `INTERNAL_ERROR` | 500 | Unhandled server error. | Retry once. If persistent, file an issue with the `request_id`. | Yes (once) |
+| `INTERNAL_DATABASE` | 503 | Database temporarily unavailable. | Retry with backoff. | Yes |
+| `INTERNAL_DEPENDENCY` | 503 | Downstream service (Pinecone, S3, OpenAI) unavailable. | Retry with backoff. | Yes |
+
+### Async job failures
+
+Jobs that fail return one of the above codes in their `error` block. The same retry semantics apply: a job failure with `retryable: true` can be re-submitted; `retryable: false` requires changing the input.
+
+## When to file a support request
+
+We're happy to help. The bar for filing:
+
+1. **You hit a code that isn't documented.** That's our bug; ping us.
+2. **`request_id` repeats for the same logical operation.** You may have hit a real server-side bug. Include the `request_id` and a description of what you were trying to do.
+3. **A `retryable: true` error doesn't go away after backoff.** Something downstream may be stuck.
+4. **`fix` doesn't fit your situation.** Sometimes the suggested fix is wrong for the context. Tell us.
+
+Email `hello@scipot.ai` with `request_id`, the rough operation (e.g., "ingestion of PDF on POT acme-eng"), and what you've already tried. We aim for 24h response during business hours.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Versioning" icon="code-branch" href="/api-reference/versioning">
+    Deprecation policy, migration patterns, breaking-change semantics.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/get-started/quickstart">
+    The happy path with code in three languages.
+  </Card>
+</CardGroup>

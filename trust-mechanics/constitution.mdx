@@ -1,0 +1,205 @@
+---
+title: "Constitution"
+sidebarTitle: "Constitution"
+description: "The axiomatic foundation of every POT. 3–7 statements at POT Score 1.0 that define what's true in the domain — and what falls outside it. Cannot be modified except by explicit Human Curator governance."
+---
+
+A Constitution is what makes a SciPot POT different from a flat pile of facts. It's the explicit foundation — typically 3 to 7 statements — that define what's *true by axiom* in the domain. Every other fact in the POT is scored, validated, and curated *relative to* the Constitution.
+
+If a fact contradicts a Constitutional axiom, the system flags it as a **critical** issue. If a fact derives from a Constitutional axiom, it inherits high certainty. If a query needs to disambiguate between two conflicting facts, the Constitution is the arbiter.
+
+You don't argue with the Constitution; you change it deliberately, or you accept it as the ground.
+
+## Defining a Constitution
+
+You set the Constitution when you create a POT:
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/from-json" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Acme Corp — Engineering Brain",
+    "slug": "acme-eng",
+    "description": "Canonical engineering knowledge for the Acme team.",
+    "domain": "software-engineering",
+    "constitution": [
+      "Acme is a B2B SaaS company. Decisions are evaluated by their impact on enterprise customers first.",
+      "We optimize for correctness over cleverness. A 10-line obvious fix beats a 200-line abstraction.",
+      "Production incidents are post-mortemed within 5 business days. Post-mortems are blameless and outcome-focused.",
+      "We do not use customer data for model training. Ever.",
+      "Architecture decisions are documented as ADRs. ADRs supersede Slack threads."
+    ]
+  }'
+```
+
+Each statement in the `constitution` array becomes a fact with:
+
+- `pot_score`: 1.0
+- `level`: `CONSTITUTION`
+- `is_axiom`: `true`
+- `immutable`: `true`
+- `provenance.type`: `human_curated`
+
+## Three jobs the Constitution does
+
+### 1. Epistemic foundation
+
+Every derived fact, every score propagation, every retrieval ranking traces back — directly or transitively — to the Constitution. When a fact is `derived_from` a Constitutional axiom, it inherits a high ceiling. When a fact `supports` a Constitutional axiom, the support is significant. The Constitution is the anchor that prevents certainty propagation from running away.
+
+### 2. Scope delineation
+
+Constitutional axioms implicitly bound what the POT knows about. A "We don't use customer data for training" axiom tells the system (and any agent querying it) that questions about training-data sourcing have an answer; an "Acme is a B2B SaaS company" axiom tells the system that B2C-pricing questions are out of scope.
+
+You can be more explicit by using a `scope_exclusion` category in the Constitution:
+
+```json
+{
+  "constitution": [
+    {
+      "category": "purpose",
+      "content": "This POT covers Acme's engineering decisions and post-mortems."
+    },
+    {
+      "category": "scope_exclusion",
+      "content": "This POT does not cover sales playbooks, customer financials, or HR matters."
+    }
+  ]
+}
+```
+
+When a query falls outside scope, the synthesizer can respond honestly: "This POT doesn't cover that. You may want a different brain."
+
+### 3. Governance anchor
+
+This is the architectural one: **Constitutional facts cannot be modified by automated processes**. Not by extraction. Not by score propagation. Not by edge detection. Not by the Agentic Curator.
+
+The only path to amending the Constitution is an explicit Human Curator action through the governance API — and that action is audit-trailed, with the prior version preserved.
+
+The result: the system you ship in production cannot quietly forget what it was originally built to know. The foundations stay where you put them, until you deliberately move them.
+
+## Properties of Constitutional facts
+
+| Property | Value | Why |
+|---|---|---|
+| `pot_score` | 1.0 | Maximum certainty, by definition |
+| `level` | `CONSTITUTION` | Distinguishable from any other fact in queries and filters |
+| `is_axiom` | `true` | Allows the system to treat differently in propagation |
+| `immutable` | `true` | Cannot be modified except through governance flow |
+| `temporal_decay_lambda` | 0.00 (forced) | Constitutional facts never decay over time |
+| `auto_promote_eligible` | `false` | Cannot be auto-promoted *to* CONSTITUTION; only Human Curators can promote |
+| `cascade_on_change` | `true` | Modifying triggers re-scoring of all derived facts |
+
+## Edge interactions
+
+Constitutional facts participate in the edge graph like any other fact, with one exception: contradictions against them are escalated to **critical** priority and surface to a Human Curator immediately.
+
+| If a new fact… | …against a Constitutional axiom | Result |
+|---|---|---|
+| `SUPPORTS` | a Constitution fact | Score boost flows normally to the new fact (since Constitution has weight 1.0, derived facts can reach high scores) |
+| `CONTRADICTS` | a Constitution fact | **Critical flag** — never auto-resolved, escalated for Human Curator review. Both facts persist until resolved. |
+| `DERIVES_FROM` | a Constitution fact | Premise score is 1.0, so derived ceiling is `1.0 × 0.90 × edge.weight` ≈ up to 0.90 |
+| `REFINES` | a Constitution fact | The refinement inherits up to `1.0 × 0.95 × edge.weight` ≈ up to 0.95, but cannot promote to 1.0 |
+
+## Querying with Constitution awareness
+
+Filter for or against Constitutional facts in retrieval:
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/query" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What are our core engineering principles?",
+    "filters": {
+      "levels": ["CONSTITUTION"]
+    }
+  }'
+```
+
+This returns only the axioms — useful for an agent that wants to ground its answer in the foundational claims before exploring derived facts.
+
+For the opposite — facts whose claims should NOT be reasoned about as canonical (working hypotheses, recent extractions) — filter by score:
+
+```json
+{
+  "filters": {
+    "max_pot_score": 0.49
+  }
+}
+```
+
+## Constitutional governance API
+
+Modifying the Constitution after POT creation requires Human Curator privileges and the governance flow. The two operations:
+
+### Add a new axiom
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/constitution" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "We deprecate APIs with 90 days notice. No exceptions for paying customers.",
+    "category": "policy",
+    "rationale": "Codifies prior incident PI-2026-04 — silent breaking change to /v1/users.",
+    "curator_id": "user_cto_001"
+  }'
+```
+
+The request is audit-trailed (`CurationRecord`), and downstream facts get re-scored to reflect the new axiom.
+
+### Amend an existing axiom
+
+```bash
+curl -X PATCH "https://api.scipot.ai/pots/{pot_id}/constitution/{axiom_id}" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "new_content": "We deprecate APIs with 180 days notice (was 90). Aligned with enterprise contracts.",
+    "rationale": "Q2 2026 board decision — enterprise SLA harmonization.",
+    "curator_id": "user_cto_001"
+  }'
+```
+
+The prior version is preserved with a `superseded_by` edge to the new axiom, so the audit trail remains intact.
+
+## Authoring guidance — what makes a good axiom
+
+We've seen Constitutions written well and badly. The patterns that work:
+
+**Be falsifiable.** "We optimize for correctness" is fine. "We care about quality" is not — it doesn't constrain any decision.
+
+**Be specific to your domain.** "Production incidents are post-mortemed within 5 business days" is a real axiom. "Best practices matter" is filler.
+
+**State both inclusions and exclusions.** What the POT *does* cover *and* what it *doesn't*. Scope exclusions are 50% of the value — they're how the system knows when to defer.
+
+**Keep it to 3–7.** A 30-axiom Constitution is a manifesto, not a foundation. If you have 30 things to say, most of them belong as VERIFIED facts beneath the Constitution, not as axioms.
+
+**Write in plain language.** Constitutional axioms are read by humans, by LLMs, and by the system. Plain is universally legible.
+
+**Anticipate disagreement.** Each axiom should be the version you'd defend in a meeting against someone who thinks the opposite. If everyone would nod and forget it, it's not load-bearing.
+
+## What happens when the Constitution is wrong
+
+Sometimes you discover, six months in, that an axiom was wrong. A market changed. A regulation passed. A premise turned out to be naïve. SciPot's design assumes this happens — that's why the amendment API exists.
+
+When you amend an axiom:
+
+1. The system marks the old version as `superseded`.
+2. All facts that `derived_from` the old axiom are re-scored with the new ceiling.
+3. Contradictions against the old axiom are re-evaluated against the new one.
+4. The amendment is logged (`CurationRecord`) with the rationale you provided.
+
+The Constitution evolves, but it evolves *deliberately, audit-trailed, and with cascade*. That's the whole point of having one.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="POT Score & Provenance" icon="scale-balanced" href="/trust-mechanics/pot-score-and-provenance">
+    The certainty layer that propagates through everything.
+  </Card>
+  <Card title="Curators" icon="users-gear" href="/trust-mechanics/curators">
+    Who actually changes the Constitution, and what tools they get.
+  </Card>
+</CardGroup>

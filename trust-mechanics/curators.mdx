@@ -1,0 +1,236 @@
+---
+title: "Curators"
+sidebarTitle: "Curators"
+description: "Two roles, one workflow. The Agentic Curator handles the 24/7 mechanical work; the Human Curator handles the judgment calls. Both have first-class API surfaces."
+---
+
+Curation is the deliberate, ongoing work of keeping a Company Brain accurate, calibrated, and aligned with the organization's actual knowledge. SciPot splits it into two roles:
+
+| Role | What it does | When it acts | Where the buck stops |
+|---|---|---|---|
+| **Agentic Curator** | Ingestion, extraction, edge detection, score propagation, obvious contradiction flagging | Continuously (24/7), reactively, on every write | No — its outputs are reviewable and reversible |
+| **Human Curator** | Constitution governance, complex contradiction resolution, fact promotion to VERIFIED, expertise-weighted contributions | When the Agentic Curator surfaces something or when a domain expert volunteers a fact | **Yes** — Human Curator decisions are the system's ground truth |
+
+Both roles share a fact graph. Both produce `CurationRecord` audit entries. The difference is authority: the Agentic Curator approximates; the Human Curator decides.
+
+## The Agentic Curator
+
+The Agentic Curator is not a single agent — it's a set of automated services that run inside SciPot:
+
+- **Ingestion pipeline.** Documents come in (PDF, DOCX, MD, plain text), get chunked, get fact-extracted by an LLM, get embedded, get persisted with initial scores.
+- **Edge detection.** After ingestion, the system detects relationships between facts: SUPPORTS, CONTRADICTS, REFINES, DERIVES_FROM, plus structural edges (IS_PART_OF, IS_TYPE_OF) and others.
+- **Score propagation.** When a new fact lands, scores ripple through the graph: supports boost their targets, contradicts get flagged, derives_from caps its derived facts.
+- **Contradiction triage.** Obvious contradictions (clear, atomic, complementary claims) get flagged with severity. Complex ones get surfaced to Human Curators.
+- **Decay management.** Time-sensitive facts (those with non-zero λ) get their scores updated on read.
+
+You don't usually invoke the Agentic Curator directly — it runs as a side effect of every ingestion, every edge detection call, every fact write. But you *can* trigger specific operations:
+
+```bash
+# Detect edges between specific facts (intra-POT)
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/edges/detect" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fact_ids": ["uuid-a", "uuid-b", "uuid-c"],
+    "include_constitution": true,
+    "auto_save": true
+  }'
+
+# Detect edges between every extracted fact in the POT
+# (expensive — n*(n-1)/2 LLM calls — but exhaustive)
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/edges/detect-intra" \
+  -H "X-API-Key: $SCIPOT_KEY"
+```
+
+The Agentic Curator's outputs are not silently authoritative. Every action produces a record that a Human Curator can audit, approve, or override.
+
+## The Human Curator
+
+A Human Curator is a human (or a team of humans) with authority over a POT's canon. Typical roles in an organization:
+
+- **CTO** for the Engineering Brain.
+- **Head of Sales** for the Sales Brain.
+- **CFO** for the Pricing/Financials Brain.
+- **Head of Legal/Compliance** for the Compliance Brain.
+
+A Human Curator's powers:
+
+1. **Promote facts to higher levels** — push an EXTRACTED fact to VERIFIED (or all the way to CONSTITUTION) based on independent knowledge.
+2. **Demote or delete facts** that an extraction got wrong.
+3. **Resolve contradictions** — choose which fact survives when two collide, mark one as superseded, or split them with refinement edges.
+4. **Amend the Constitution** — the only role that can.
+5. **Approve or reject contributed facts** from non-curator users.
+
+Every Human Curator action creates a `CurationRecord` audit entry: who did what, when, with what rationale, and (for amendments) what the prior state was.
+
+### Curate an extracted fact
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/facts/{fact_id}/curate" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "approve",
+    "promote_to_level": "VERIFIED",
+    "curator_id": "user_cto_001",
+    "rationale": "Confirmed against ADR-2026-014; this is the canonical retry policy."
+  }'
+```
+
+Or disapprove:
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/facts/{fact_id}/curate" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -d '{
+    "action": "disapprove",
+    "curator_id": "user_cto_001",
+    "rationale": "Extraction confused two products; the deprecated policy applies only to v1."
+  }'
+```
+
+The result: the fact is updated, the audit trail records the action, and downstream propagation re-runs.
+
+## Contributors (M20+) — humans who aren't full Curators
+
+Not everyone in an organization is a Curator, but lots of people have useful knowledge. SciPot supports a **Contributor** role: trusted humans who can submit new facts that the system scores based on their declared expertise.
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/facts/contribute" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Our default Redis eviction policy is allkeys-lru, set in the deploy script line 47.",
+    "domain": "infrastructure",
+    "contributor_id": "user_eng_017",
+    "contributor_expertise": {
+      "infrastructure": 0.9,
+      "data_engineering": 0.4
+    },
+    "sources": [
+      {
+        "title": "deploy/redis/redis.conf",
+        "section": "line 47",
+        "reliability": "high"
+      }
+    ]
+  }'
+```
+
+The initial score is calculated from the contributor's declared expertise in the relevant domain, with diminishing returns for repeat contributions:
+
+```
+contribution_score = base_score × expertise_factor × diminishing_returns_factor
+```
+
+A Human Curator can review the contribution and either approve (promote to VERIFIED), leave it (extracted), or disapprove.
+
+The expertise-based scoring is what prevents two failure modes:
+
+1. **Spam by enthusiastic non-experts.** Someone who claims expertise in everything gets diminishing returns until a Curator validates their judgment.
+2. **Silencing real experts.** Someone who has consistently been approved in a domain has their contributions scored higher by default — they earn weight by being right.
+
+## ContributorProfile — earned authority
+
+Every contributor accumulates a `ContributorProfile` over time:
+
+```typescript
+ContributorProfile: {
+  user_id: string,
+  domains: {
+    [domain: string]: {
+      declared_expertise: number,        // 0.0–1.0, self-reported
+      contributions_count: number,
+      approval_rate: number,             // % approved by Human Curators
+      effective_expertise: number,       // derived: weighted by approval_rate
+      last_active: string
+    }
+  },
+  global_approval_rate: number,
+  total_contributions: number
+}
+```
+
+Effective expertise drifts toward earned authority over time. A contributor who declared 0.9 expertise in `infrastructure` but has a 30% approval rate ends up with effective expertise around 0.27. Someone who declared 0.4 but has a 95% approval rate ends up around 0.38, possibly higher with bonus weighting.
+
+The system rewards being right, not being loud.
+
+## Audit trail — every curation action is recorded
+
+```typescript
+CurationRecord: {
+  id: string,
+  pot_id: string,
+  fact_id: string,                       // or null for Constitution actions
+  action: "approve" | "disapprove" | "promote" | "demote" | "amend_constitution" | "resolve_contradiction",
+  prior_state: object,                   // for amendments
+  new_state: object,
+  curator_id: string,
+  rationale: string,                     // free text, required for non-trivial actions
+  timestamp: string,
+  related_records: string[]              // links to prior records, contradicting facts, etc.
+}
+```
+
+Six months from now, when someone asks "why did the agent claim X?" — you can trace it: the fact's provenance points to the source, the curation record points to who approved it, the contradiction resolution points to what was rejected and why.
+
+That's the difference between a knowledge base that has memory and a knowledge base that has *accountability*.
+
+## When the Agentic and Human Curators disagree
+
+The Agentic Curator's defaults are designed to be cautious — it never silently overrules a Human Curator. Specifically:
+
+- An Agentic Curator cannot promote a fact above VERIFIED (max auto-score is 0.95).
+- An Agentic Curator cannot delete a fact set or approved by a Human Curator.
+- An Agentic Curator cannot amend the Constitution.
+- If an Agentic Curator's contradiction-detection produces a CONTRADICTS edge against a Human-Curated fact, the edge is flagged at high or critical priority and surfaces in the review queue.
+
+If you want the Agentic Curator to be more or less aggressive, that's a per-POT configuration. The defaults are conservative because the asymmetric cost of mistakes — silently corrupting a Company Brain is much more expensive than missing a borderline promotion.
+
+## The review queue
+
+Curators-in-practice spend most of their time in the review queue: a stream of items the Agentic Curator has surfaced for human judgment.
+
+```bash
+curl -X GET "https://api.scipot.ai/pots/{pot_id}/curation/queue?priority=high,critical" \
+  -H "X-API-Key: $SCIPOT_KEY"
+```
+
+Returns items like:
+
+```json
+{
+  "queue": [
+    {
+      "id": "review-001",
+      "type": "contradiction",
+      "priority": "critical",
+      "fact_a": { "id": "...", "content": "Pricing floor is $25K ARR.", "pot_score": 0.95 },
+      "fact_b": { "id": "...", "content": "Pricing floor is $50K ARR.", "pot_score": 0.78 },
+      "edge": { "type": "CONTRADICTS", "weight": 0.92 },
+      "rationale": "Both facts are about Acme pricing floor but disagree."
+    },
+    {
+      "id": "review-002",
+      "type": "promotion_candidate",
+      "priority": "normal",
+      "fact": { "id": "...", "content": "...", "pot_score": 0.82 },
+      "rationale": "Score crossed 0.80 threshold; eligible for Human-validated VERIFIED promotion."
+    }
+  ],
+  "total": 12
+}
+```
+
+A good curation workflow: queue review → resolve → recompute → move on. Time-boxed weekly is realistic for a small team; daily is realistic for a large one.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Constitution" icon="landmark" href="/trust-mechanics/constitution">
+    The axioms that only Human Curators can change.
+  </Card>
+  <Card title="Contradiction Detection" icon="triangle-exclamation" href="/trust-mechanics/contradiction-detection">
+    What the review queue is mostly full of, and why that's the system working.
+  </Card>
+</CardGroup>

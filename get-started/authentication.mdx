@@ -1,0 +1,161 @@
+---
+title: "Authentication & API Keys"
+sidebarTitle: "Authentication"
+description: "How to get an API key, what headers every request needs, and what to expect during the current waitlist phase."
+---
+
+SciPot uses API key authentication. Every authenticated request needs two headers:
+
+```http
+X-API-Key: ik_live_xxxxxxxxxxxxx
+X-Workspace-ID: 01971abc-...
+```
+
+The key identifies your **integrator** (your application's identity). The workspace ID identifies which of your tenants the request is for. SciPot's authorization model is multi-tenant by design — every fact, POT, document, and edge is scoped to a workspace, and the workspace boundary is enforced at the storage layer.
+
+## Current access model (Phase 1)
+
+We're in a phase where integrator keys (`ik_live_*`) are issued through a managed onboarding process, not direct self-serve signup. This is intentional:
+
+- We want to talk to early adopters. Your use case shapes the roadmap.
+- The billing surface for direct self-serve (`sk_live_*`) — milestone **M26** in our [roadmap](https://github.com/smtx/scipot-core/blob/main/ROADMAP.md) — is still in development. Direct keys without billing would be a one-way door.
+- We can fast-track production-ready integrations when we know what's being built.
+
+### How to get a key
+
+Three paths:
+
+1. **The fast lane**: email `hello@scipot.ai` with a 2-sentence description of what you're building. We respond within 24 business hours. If your use case is a fit, we'll issue an `ik_live_*` key plus a workspace via a 15-minute call. No credit card during Phase 1.
+
+2. **The waitlist**: sign up at [scipot.ai](https://scipot.ai). You'll get notified when self-serve keys (`sk_test_*` first, then `sk_live_*`) become available — currently scheduled for the M26 milestone.
+
+3. **You're already a KB2B customer**: [KB2B](https://kb2b.scipot.ai) uses SciPot under the hood. If you're already on KB2B and want direct API access for a separate use case, mention it on your account and we'll spin up an integrator for you.
+
+<Note>
+**No demo / sandbox key yet.** The interactive sandbox (`/demo/*` endpoints with a pre-seeded demo POT) is part of the docs.scipot.ai Phase 1 plan but is not yet live. Until it ships, the fastest way to see SciPot in action is the [Quickstart](/get-started/quickstart) against a real key.
+</Note>
+
+## Key formats
+
+| Prefix | Status | Audience | Notes |
+|---|---|---|---|
+| `ik_live_*` | **Live** | Integrators (our managed onboarding) | Production keys, no expiry, scoped to one integrator with many workspaces. |
+| `sk_test_*` | Planned (Q3 2026) | Self-serve developers, sandbox | Test-scoped keys with rate-limited sandbox POT. Decoupled from billing. |
+| `sk_live_*` | Planned (M26) | Self-serve developers, production | Direct self-serve with metered billing. Per-developer workspaces. |
+
+When you receive a key, treat it as a secret. Don't commit it to git. Don't embed it in client-side code. Use environment variables or your secret manager of choice.
+
+## Request anatomy
+
+A complete authenticated request:
+
+```http
+POST /pots/01971abc-.../synthesize HTTP/1.1
+Host: api.scipot.ai
+X-API-Key: ik_live_xxxxxxxxxxxxx
+X-Workspace-ID: 01971abc-...
+Content-Type: application/json
+
+{
+  "query": "What is our enterprise pricing floor?"
+}
+```
+
+Two mandatory headers, one optional:
+
+| Header | Required | Description |
+|---|---|---|
+| `X-API-Key` | Yes | Your integrator key. Identifies your application. |
+| `X-Workspace-ID` | Yes (for multi-tenant) | The workspace this request operates on. Single-workspace integrators may set a default — ask during onboarding. |
+| `X-Request-Id` | No | Client-supplied request ID for tracing. If unset, the server generates one and returns it in the response. Log it. |
+
+## Workspaces
+
+Each integrator can manage multiple workspaces. A workspace is a hard data boundary: facts, POTs, documents, jobs, and edges from one workspace are never visible from another.
+
+Typical workspace shapes:
+
+- **One workspace per tenant** (most common for B2B SaaS integrators). Each customer of your application has its own workspace.
+- **One workspace per environment** (dev/staging/prod). Useful for small integrators.
+- **One workspace per project/team** (internal use cases). The Acme Engineering Brain and the Acme Sales Brain might live in separate workspaces.
+
+Workspace management endpoints:
+
+```bash
+# List your workspaces
+curl -X GET "https://api.scipot.ai/integrator/workspaces" \
+  -H "X-API-Key: $SCIPOT_KEY"
+
+# Create a workspace
+curl -X POST "https://api.scipot.ai/integrator/workspaces" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Acme Corp", "slug": "acme"}'
+```
+
+Full reference: [API Reference → Workspaces](/api-reference/introduction#workspaces).
+
+## Errors
+
+Authentication errors follow the standard [error envelope](/api-reference/errors):
+
+| Code | Cause | Fix |
+|---|---|---|
+| `401 AUTH_MISSING_KEY` | No `X-API-Key` header. | Add the header. Don't proceed. |
+| `401 AUTH_INVALID_KEY` | Key not recognized or revoked. | Check the key. Reach out if it should be valid. |
+| `401 AUTH_WORKSPACE_MISMATCH` | The workspace ID doesn't belong to this integrator. | Check `X-Workspace-ID`. |
+| `403 AUTH_FORBIDDEN` | Valid key, but lacking permission for this operation. | Some operations (Curator actions, bootstrap) require elevated roles. |
+| `429 RATE_LIMITED` | Per-integrator rate cap hit. | Honor `Retry-After`. |
+
+Auth errors do not retry — fix the credentials, don't loop.
+
+## Rate limits
+
+Default integrator limits (Phase 1):
+
+- **60 requests/minute** for read operations (GET endpoints).
+- **20 requests/minute** for write operations (POST/PATCH/DELETE).
+- **Ingestion jobs**: capped at 10 concurrent jobs per workspace.
+- **LLM-backed operations** (`/synthesize`, `/edges/detect`, `/extract-*`): subject to your provider's tier limits; SciPot does not relax them.
+
+Higher limits available on request — these defaults are conservative starting points, not ceilings.
+
+When you hit a limit, the response is `429` with a `Retry-After` header (seconds). Honor it with exponential backoff; do not retry tight loops.
+
+## Rotation and revocation
+
+Two operations every integrator should know how to do:
+
+### Generate a new key
+
+```bash
+curl -X POST "https://api.scipot.ai/integrators/{id}/api-keys" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "ci-deploy-key"}'
+```
+
+Response includes the key value **once**. Save it. We don't store it in plaintext, so we can't show it again.
+
+### Revoke a key
+
+```bash
+curl -X DELETE "https://api.scipot.ai/integrators/{id}/api-keys/{key_id}" \
+  -H "X-API-Key: $SCIPOT_KEY"
+```
+
+If a key leaks, revoke it. The revocation propagates within seconds.
+
+## Security posture
+
+A few things we do and don't:
+
+- **We log every authenticated request** with `request_id`, integrator ID, workspace ID, route, latency, and outcome. We do **not** log request bodies or response bodies in default settings.
+- **Keys are stored hashed** (SHA-256). We can't recover a lost key.
+- **CORS is allow-listed** per integrator. Add your origins during onboarding.
+- **We don't use your data to train models.** Your ingested documents and extracted facts are scoped to your workspace and only retrieved by your authenticated requests.
+- **No customer data goes to training** — this is in our Constitution-equivalent for the product, not a marketing claim.
+
+## Once you have access
+
+Move to the [Quickstart](/get-started/quickstart) — six API calls, five minutes, end-to-end working query against your first Company Brain.

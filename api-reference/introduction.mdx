@@ -1,0 +1,176 @@
+---
+title: "API Reference"
+sidebarTitle: "Introduction"
+description: "Base URL, conventions, request shape, pagination, identifiers. Read this once; refer back to the per-endpoint pages for specifics."
+---
+
+The SciPot API is a JSON HTTP API served from `https://api.scipot.ai`. It follows REST conventions (mostly), uses UUIDv7 for all entity identifiers, and is auto-documented via OpenAPI 3.x available at [`api.scipot.ai/openapi.json`](https://api.scipot.ai/openapi.json) and Swagger UI at [`api.scipot.ai/docs`](https://api.scipot.ai/docs).
+
+This page covers the cross-cutting conventions. For per-endpoint documentation, see the endpoint sections in the left sidebar — those are auto-generated from the OpenAPI spec and stay in sync with the production API.
+
+## Base URL
+
+```
+https://api.scipot.ai
+```
+
+There is one production environment. For local development against `localhost:8000`, the routes are identical — only the base URL changes.
+
+## Authentication
+
+All endpoints (except health checks and a small set of bootstrap endpoints) require two headers:
+
+```http
+X-API-Key: ik_live_xxxxxxxxxxxxx
+X-Workspace-ID: 01971abc-...
+```
+
+See [Authentication & API Keys](/get-started/authentication) for how to obtain a key and what the workspace boundary means.
+
+## Identifiers
+
+Every entity in SciPot uses **UUIDv7**:
+
+- Globally unique.
+- Chronologically sortable (the first part is a timestamp).
+- Standard 36-character string representation: `01971abc-1234-7def-89ab-1234567890ab`.
+
+This applies to POTs, facts, edges, documents, jobs, integrators, workspaces, contributor profiles, curation records — everything. When an endpoint returns an `id`, treat it as opaque and use it verbatim.
+
+Slugs (human-readable identifiers) exist alongside UUIDs for some entities (POTs, workspaces). Slugs are URL-safe, lowercase, unique within their scope, and stable — but they're a convenience layer over the UUID. The UUID is the source of truth.
+
+## Request shape
+
+All write endpoints accept JSON bodies:
+
+```http
+POST /pots/{pot_id}/synthesize
+Content-Type: application/json
+
+{ "query": "..." }
+```
+
+All responses are JSON unless the endpoint is binary (e.g., file downloads return presigned URLs, not file bytes). Standard error envelope is documented at [Errors](/api-reference/errors).
+
+### Idempotency
+
+For POST operations that you may need to retry safely, supply an `Idempotency-Key` header (any opaque string, max 255 chars). The server keys on it for 24 hours. A second request with the same key returns the original response without re-executing.
+
+```http
+POST /pots/{pot_id}/ingest
+Idempotency-Key: client-tx-2026-05-11-001
+```
+
+Endpoints that explicitly support idempotency are noted in their per-endpoint docs. For endpoints that don't, retrying is safe but may produce duplicates — check the response before retrying.
+
+## Pagination
+
+Endpoints that return collections use **cursor-based pagination** with `limit` and `cursor` parameters:
+
+```http
+GET /pots/{pot_id}/facts?limit=50&cursor=eyJzayI6IjAxOTcxLi4uIn0
+```
+
+A paginated response:
+
+```json
+{
+  "facts": [ /* ... */ ],
+  "total": 247,
+  "next_cursor": "eyJzayI6IjAxOTcxLi4uIn0",
+  "has_more": true
+}
+```
+
+Default `limit` is 50; max is 500. Pass `next_cursor` back as `cursor` on the next request to continue. When `has_more: false`, you're done.
+
+A few legacy endpoints use offset pagination (`limit` + `offset`). These are being migrated to cursor; the per-endpoint docs note which is currently in use.
+
+## Filtering and sorting
+
+Collection endpoints generally accept:
+
+- `sort_by`: field name (e.g., `created_at`, `updated_at`, `pot_score`).
+- `sort_order`: `asc` or `desc` (default `desc` for time fields, `asc` for scores).
+- Field-specific filters: `min_pot_score`, `max_pot_score`, `domain`, `status`, `tags`, etc.
+
+Specifics are documented per endpoint. The general principle: filters narrow the result set; sort orders it; pagination chunks it.
+
+## Async operations and jobs
+
+Long-running operations (document ingestion, exhaustive edge detection, bulk extraction) are asynchronous. The kickoff endpoint returns `202 Accepted` with a `job_id`:
+
+```json
+{ "job_id": "01971xyz-...", "status": "pending" }
+```
+
+Poll [`GET /jobs/{job_id}`](https://api.scipot.ai/docs#/Jobs/get_jobs__job_id_) until `status` is `completed` or `failed`. Jobs include `progress` during processing and a `result` block (or `error` block) at terminal state.
+
+We recommend polling every 1–5 seconds for jobs <1 minute, 5–30 seconds for longer jobs, with exponential backoff. We're working on webhook notifications (milestone **M22**) for production use; until then, polling is the official path.
+
+## Rate limits
+
+Per-integrator default limits (Phase 1):
+
+- **60 requests/minute** for read operations.
+- **20 requests/minute** for write operations.
+- **10 concurrent ingestion jobs per workspace.**
+
+Exceeded limits return `429` with a `Retry-After` header (seconds). Honor it. Don't retry tight loops.
+
+Higher limits available on request — these are starting defaults, not hard caps. See [Authentication → Rate limits](/get-started/authentication#rate-limits) for details.
+
+## Versioning
+
+The API is versioned via URL prefix. The current major version is **v1**, but `v1` is the only one served today and the URL prefix is omitted for shorter routes (i.e., `https://api.scipot.ai/pots/...` is implicitly v1).
+
+When v2 ships, both versions will be available simultaneously for a deprecation window. Breaking changes are flagged via:
+
+- `Deprecation` response header with the deprecation date.
+- `Sunset` response header with the planned removal date.
+- A `X-API-Version` response header echoing which version handled the request.
+
+See [Versioning](/api-reference/versioning) for the full deprecation policy.
+
+## Conventions you'll see across endpoints
+
+A few patterns that show up in many endpoints, worth knowing up front:
+
+### `levels` filter
+
+Several retrieval endpoints accept a `levels` filter to restrict by POT Score level. The accepted values are the **6-tier internal enum** (these are the exact strings the API returns and accepts):
+
+```json
+{ "filters": { "levels": ["CONSTITUTION", "VERIFIED", "SUPPORTED"] } }
+```
+
+The 5-tier external model used in concept docs maps onto these — see the [POT Score canonical spec](https://github.com/smtx/scipot-core/blob/main/docs/technical/pot-score-specification.md) for the mapping table.
+
+### `include_epistemic_briefing`
+
+Synthesis endpoints accept this boolean. When `true`, the response includes an `epistemic_briefing` block describing the system's confidence in the answer, coverage limitations, and any unresolved contradictions. Default is `false`; we recommend `true` for production agents that need to decide whether to surface caveats.
+
+### `provenance` blocks
+
+Wherever a fact is returned, it carries a structured `provenance` object. See [POT Score & Provenance](/trust-mechanics/pot-score-and-provenance) for the schema and what each field means.
+
+### Soft deletes
+
+`DELETE` endpoints on entities (POTs, documents, facts, edges) are **soft deletes** by default. The entity is marked `deleted_at` but persists for audit-trail purposes. A separate `?hard=true` query parameter (when supported) forces permanent removal; otherwise, soft-deleted entities are excluded from default retrieval but accessible via admin endpoints.
+
+## Where to start
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/get-started/quickstart">
+    Six API calls, end-to-end working query.
+  </Card>
+  <Card title="Authentication" icon="key" href="/get-started/authentication">
+    How to get a key, workspace setup, security posture.
+  </Card>
+  <Card title="Errors" icon="triangle-exclamation" href="/api-reference/errors">
+    Error envelope shape, full code list, retry semantics.
+  </Card>
+  <Card title="Versioning" icon="code-branch" href="/api-reference/versioning">
+    Deprecation policy, migration patterns, header conventions.
+  </Card>
+</CardGroup>

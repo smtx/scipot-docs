@@ -1,0 +1,235 @@
+---
+title: "POT Score & Provenance"
+sidebarTitle: "POT Score & Provenance"
+description: "Every fact has a score. Every score has a source. Here's exactly how the system computes both, propagates one through the other, and lets you query against either."
+---
+
+POT Score (Proof of Truth) is the numeric certainty layer SciPot applies to every fact. It's a calibrated 0.0–1.0 value that propagates through the knowledge graph, gets demoted by contradictions, gets boosted by independent corroboration, and decays over time for facts that have time-sensitivity built in.
+
+Every score is anchored to **provenance**: a structured record of where the fact came from, what extraction method produced it, who approved it (if anyone), and when it was last validated. Score and provenance are not separate concerns — a score without provenance is just a number, and a provenance without a score is metadata. Together, they're the receipt your agent (or you) needs to decide whether to act on a fact.
+
+## See it in one curl
+
+```bash
+curl -X GET "https://api.scipot.ai/pots/{pot_id}/facts/{fact_id}" \
+  -H "X-API-Key: $SCIPOT_KEY"
+```
+
+Returns:
+
+```json
+{
+  "id": "01971abc-...",
+  "content": "Enterprise pricing has a floor of $25K ARR.",
+  "pot_score": 0.95,
+  "level": "VERIFIED",
+  "provenance": {
+    "type": "human_curated",
+    "sources": [
+      {
+        "document_id": "01971def-...",
+        "title": "Pricing decisions memo, 2026-02-14",
+        "section": "section 3.2 — Enterprise floor",
+        "reliability": "high"
+      }
+    ],
+    "extraction_method": "manual",
+    "curated_by": "user_cfo_001",
+    "curated_at": "2026-02-14T16:32:00Z"
+  }
+}
+```
+
+That's the receipt: a number, a source, and a custody chain.
+
+## The 5-tier external model
+
+When you're explaining POT Score to humans (your team, your investors, your end-users), the 5-tier model is the right one:
+
+| Score Range | Level | What it means |
+|---|---|---|
+| 1.0 | **CONSTITUTION** | Foundational axiom set by a Human Curator. Immutable except through explicit governance. Defines the domain. |
+| 0.85–0.99 | **VERIFIED** | Multiple independent sources or active human validation. Established knowledge. |
+| 0.50–0.84 | **EXTRACTED** | Extracted from a documented source with clear provenance. Reliability depends on source quality. |
+| 0.30–0.49 | **INFERRED** | Derived by automated reasoning or edge propagation. Useful as a working hypothesis. |
+| 0.00–0.29 | **PENDING** | Recently ingested, awaiting classification. Available for retrieval but marked unverified. |
+
+<Note>
+**Two tables, same idea.** The API enum returned in `fact.level` uses a **6-tier internal model** that splits PENDING into HYPOTHESIS (0.20–0.39) and SPECULATION (0.00–0.19), and renames EXTRACTED → SUPPORTED with a finer threshold. The two views are intentional: humans read the 5-tier model; APIs return the 6-tier enum. See the [canonical spec](https://github.com/smtx/scipot-core/blob/main/docs/technical/pot-score-specification.md) for the full mapping, or the [API Reference](/api-reference/introduction) for the exact enum values.
+</Note>
+
+## Initial scoring
+
+When a fact enters a POT, its initial score is calculated deterministically based on provenance:
+
+```
+PROVENANCE_SCORES = {
+    "extracted": 0.50,   # LLM-extracted from documents
+    "manual":    0.70,   # Human-created facts
+    "inferred":  0.45,   # Derived from reasoning chains
+    "imported":  0.50,   # External data ingestion
+}
+```
+
+Two boost factors apply on top:
+
+```
+multi_source_boost = min(0.05 × (source_count - 1), 0.20)
+authority_boost    = 0.10 if any source has reliability=high else 0.00
+
+initial_score = min(base_score + multi_source_boost + authority_boost, 0.99)
+```
+
+The hard cap of **0.99** is intentional: only Constitutional axioms reach 1.0, and Constitution requires explicit Human Curator action. The system cannot promote a fact to absolute certainty on its own.
+
+**Worked example.** An extracted fact appearing in 3 independent sources, one of which is flagged high-reliability:
+
+```
+base_score          = 0.50
+multi_source_boost  = min(0.05 × 2, 0.20) = 0.10
+authority_boost     = 0.10
+initial_score       = min(0.50 + 0.10 + 0.10, 0.99) = 0.70 → EXTRACTED
+```
+
+## Score propagation through edges
+
+POT Scores aren't static. They propagate through the knowledge graph via typed epistemic edges. The four mechanics:
+
+### SUPPORTS — boost with diminishing returns
+
+When one or more facts support a target, the target's score increases:
+
+```
+raw_boost_i      = supporter_i.score × edge_i.weight × 0.15
+effective_boost_i = raw_boost_i × (0.8 ^ i)        # sorted by raw_boost desc
+new_score        = min(target.score + Σ effective_boost_i, 0.95)
+```
+
+The diminishing-returns factor (`0.8`) encodes a real epistemic principle: the first independent corroboration is the most valuable; each subsequent one adds less. The ceiling of **0.95** ensures supporting evidence alone never reaches the VERIFIED/Constitution territory — that still requires human action.
+
+### CONTRADICTS — flag only, never auto-resolve
+
+A contradiction never lowers the target's score automatically. Instead, the system flags it for Human Curator review with a severity that depends on what was contradicted:
+
+```
+if target is Constitution:          flag, priority = critical
+elif target.score >= 0.70:          flag, priority = high
+else:                                flag, priority = normal
+```
+
+This is a deliberate architectural choice. A newer fact might represent an update (price changed) or an error (LLM hallucinated). Only human judgment can determine which. The system preserves both facts and surfaces the conflict — it never silently drops established knowledge.
+
+[More on contradiction handling →](/trust-mechanics/contradiction-detection)
+
+### DERIVES_FROM — ceiling
+
+A derived fact cannot be more certain than its premises:
+
+```
+ceiling   = min(premise.score for premises) × 0.90 × avg(edge.weight)
+new_score = min(derived.score, ceiling)
+```
+
+The 10% epistemic decay (`× 0.90`) prevents certainty inflation through long derivation chains. Circular derivations get a steeper penalty (`× 0.81`, which is `0.90²`) to discourage and limit them.
+
+### REFINES — inheritance
+
+A refinement inherits credibility from the original with minimal decay:
+
+```
+inherited = original.score × 0.95 × edge.weight
+new_score = max(refined.score, inherited)
+```
+
+The `max` (not `min`) is the key choice: refinement is a constructive act, and a refinement should benefit from its original's credibility while keeping any independent evidence it has.
+
+## Provenance is a first-class field
+
+Every fact carries structured provenance:
+
+```typescript
+provenance: {
+  type: "extracted" | "manual" | "inferred" | "imported" | "human_curated",
+  sources: Array<{
+    document_id: string,
+    title: string,
+    section?: string,
+    page?: number,
+    reliability: "high" | "medium" | "low",
+    author?: string,
+    date?: string
+  }>,
+  extraction_method: string,           // e.g. "gpt-4o-mini chunk extraction v2"
+  curated_by?: string,                 // Human Curator who promoted/approved
+  curated_at?: string                  // ISO timestamp of last curation
+}
+```
+
+Three things this enables that other memory layers can't:
+
+1. **Audit trail.** Six months from now, when someone asks "why did the agent say that?" — you have the answer.
+2. **Source-weighted ranking.** Retrieval can prefer facts from high-reliability sources, not just facts that are semantically close to the query.
+3. **Targeted re-validation.** When a source document changes (the pricing memo gets a v2), the system can identify every fact that traces back to it and re-score them.
+
+## Querying with score and provenance
+
+Every retrieval endpoint accepts score-based filters:
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/query" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What are our enterprise discount tiers?",
+    "filters": {
+      "min_pot_score": 0.70,
+      "min_source_reliability": "high"
+    },
+    "top_k": 10
+  }'
+```
+
+The combined ranking formula:
+
+```
+combined_score = (similarity × 0.7) + (pot_score × 0.3)
+```
+
+Tunable: pin a single strategy, change the ranking weights, raise the score floor. See [Retrieval Strategies](/guides/retrieval-strategies) for the override surface.
+
+## Temporal decay (optional, off by default)
+
+Some facts are inherently time-sensitive. SciPot supports exponential decay per fact:
+
+```
+score_actual(t) = score_base × e^(-λ × t)
+```
+
+Decay presets:
+
+| λ | Profile | Use case | Score after 12 months |
+|---|---|---|---|
+| 0.00 | None (default) | Physical laws, axioms, definitions | 100% |
+| 0.02 | Slow | Industry standards | ~79% |
+| 0.05 | Medium | Market data, statistics | ~55% |
+| 0.10 | Fast | Pricing, executive appointments | ~30% |
+| 0.20 | Very fast | News, events, forecasts | ~9% |
+
+**Constitution facts never decay** (λ is forced to 0.00). Human Curator validation resets the clock. Below 0.30 a fact is flagged `requires_revalidation`; below 0.10 it's marked `expired` and excluded from default retrieval.
+
+## What you get in production
+
+A scored, sourced fact graph that your agents can query with explicit certainty filters, plus an audit trail for every claim. The system gets sharper as Human Curators promote facts to VERIFIED; it gets safer because contradictions never get averaged away; it gets more useful as edges accumulate and score propagation runs.
+
+This is the unit of trust. Everything else in SciPot — Constitution, Curators, Contradictions, Retrieval — composes on top.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Constitution" icon="landmark" href="/trust-mechanics/constitution">
+    The axiomatic foundation of every POT. Score 1.0, immutable except by explicit governance.
+  </Card>
+  <Card title="Contradiction Detection" icon="triangle-exclamation" href="/trust-mechanics/contradiction-detection">
+    What happens when two facts disagree. (Spoiler: the system flags, never silences.)
+  </Card>
+</CardGroup>

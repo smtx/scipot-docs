@@ -1,0 +1,276 @@
+---
+title: "Contradiction Detection"
+sidebarTitle: "Contradiction Detection"
+description: "Two facts disagree. A vector store averages them. SciPot flags the conflict, preserves both, and routes it to a Human Curator. Contradictions never get silenced."
+---
+
+Most retrieval systems treat contradictions as noise. SciPot treats them as signal.
+
+When two facts in a POT disagree — the 2024 pricing memo says $99, the 2025 update says $129, the sales playbook mentions $119 — a vector store retrieves all three and lets the synthesizing LLM "smooth" them into a fluent answer. The contradiction is invisible. The answer is wrong-in-a-confident-voice, which is the most expensive failure mode an AI agent can have.
+
+SciPot doesn't average. It flags. The contradiction stays loud until a Human Curator decides what's true.
+
+## See it in one query
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/synthesize" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What is our enterprise pricing floor?",
+    "include_epistemic_briefing": true
+  }'
+```
+
+Response with a contradiction surfaced:
+
+```json
+{
+  "answer": "Sources disagree on the enterprise pricing floor — the canonical figure is $25K ARR per the 2026-02 CFO-approved memo. An older sales playbook references $50K; this likely reflects a superseded policy. Recommend confirming with current pricing docs before quoting.",
+  "facts_used": [
+    {
+      "id": "01971abc-...",
+      "content": "Enterprise pricing has a floor of $25K ARR.",
+      "pot_score": 0.95,
+      "provenance": { "source": "Pricing decisions memo, 2026-02-14, approved by CFO" }
+    },
+    {
+      "id": "01971def-...",
+      "content": "Enterprise pricing has a floor of $50K ARR.",
+      "pot_score": 0.62,
+      "provenance": { "source": "Sales playbook v2, 2024-09" }
+    }
+  ],
+  "contradictions_found": [
+    {
+      "fact_a_id": "01971abc-...",
+      "fact_b_id": "01971def-...",
+      "edge_type": "CONTRADICTS",
+      "edge_weight": 0.91,
+      "priority": "high",
+      "status": "flagged_for_review",
+      "review_id": "review-117"
+    }
+  ],
+  "epistemic_briefing": {
+    "confidence_level": "medium",
+    "coverage": "comprehensive",
+    "limitations": [
+      "One unresolved contradiction (review-117). The higher-scored fact is favored in this answer, but a Human Curator has not formally resolved it."
+    ]
+  }
+}
+```
+
+Three things happened here that no other memory layer does:
+
+1. The contradiction is **named in the answer**, not hidden by it.
+2. The **higher-scored fact wins** the prose, but the lower-scored fact stays available with its provenance.
+3. A **review record** is queued for a Human Curator to formally resolve.
+
+That's contradiction handling worth paying for.
+
+## How contradictions are detected
+
+Detection runs at two moments:
+
+### 1. Post-ingestion (automatic — M15)
+
+After every document is ingested and facts are extracted, the **PostIngestionService** runs Constitution edge detection: every new fact is checked against every Constitutional axiom, and `SUPPORTS` / `CONTRADICTS` edges are created with confidence scores.
+
+This is fast and cheap because the Constitution is small (3–7 facts per POT). It catches the most important class of contradictions: new facts that conflict with the foundational axioms.
+
+### 2. Intra-fact detection (on demand)
+
+For contradictions among extracted facts (not against the Constitution), you trigger detection explicitly:
+
+```bash
+# Targeted: check edges between specific facts
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/edges/detect" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -d '{
+    "fact_ids": ["uuid-a", "uuid-b", "uuid-c"],
+    "include_constitution": false,
+    "auto_save": true,
+    "min_weight": 0.3
+  }'
+
+# Exhaustive: every pair in the POT (expensive)
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/edges/detect-intra" \
+  -H "X-API-Key: $SCIPOT_KEY"
+```
+
+The exhaustive version is `n × (n-1) / 2` LLM calls. For a POT with 80 facts, that's 3,160 calls — roughly $0.25 and 10 minutes of wall time on GPT-4o-mini. Run it after large ingestions, on a schedule, or never — it's a deliberate operation, not a default.
+
+## What CONTRADICTS means structurally
+
+`CONTRADICTS` is one of SciPot's five **epistemic edges** — typed relationships about how facts relate in terms of truth:
+
+| Edge type | Meaning | Score effect |
+|---|---|---|
+| `SUPPORTS` | A provides evidence for B | Boosts B (with diminishing returns) |
+| **`CONTRADICTS`** | **A disagrees with B** | **Flag only — never auto-resolve** |
+| `REFINES` | A is a more precise/updated version of B | B inherits credibility, marked as refined |
+| `DERIVES_FROM` | A was inferred from B | A's ceiling is capped by B's score |
+| `IS_PART_OF` / `CONTAINS` | Structural composition | Component cannot exceed whole |
+
+Every detected edge has a `weight` (0.0–1.0) representing the strength of the relationship, plus structured `provenance` (which method detected it: LLM, deterministic-rule, manual, etc.).
+
+For `CONTRADICTS` specifically, the system also records:
+
+- A `priority` based on what was contradicted (Constitution = critical; high-certainty fact = high; standard = normal).
+- A `status`: `flagged_for_review`, `resolved_by_curator`, or `auto_dismissed` (only for low-confidence edges below a configurable threshold).
+
+## Why contradictions are never auto-resolved
+
+This is the design choice that takes the most explaining, so we'll be explicit.
+
+A new contradictory fact could be any of:
+
+- **An update.** Pricing changed. Policy was revised. The old fact is stale.
+- **An error.** The LLM hallucinated. The extraction picked up a hypothetical that wasn't asserted. A typo in the source.
+- **A scope conflict.** Both facts are true, but apply to different sub-domains the extraction didn't disambiguate.
+- **A genuine epistemological conflict.** Two reasonable people disagree, and the truth is contested.
+
+**No algorithm can reliably distinguish these four cases.** An automated resolver that downscored every contradicted fact would silently delete real knowledge whenever an LLM hallucinated. An auto-resolver that always favored the newer fact would erase Constitutional axioms whenever a stray document said otherwise. An auto-resolver that always favored the higher-scored fact would never let knowledge update.
+
+The only safe behavior is to surface the conflict and let a human decide.
+
+This is the same principle that production databases follow when they encounter merge conflicts. You don't silently pick a side — you stop and ask the person who knows.
+
+## Priority levels
+
+```python
+if target is Constitution:
+    flag = "contradicts_constitution"
+    priority = "critical"           # immediate review
+elif target.score >= 0.70:
+    flag = "contradicts_high_certainty"
+    priority = "high"               # review within 24h
+else:
+    flag = "contradicts_standard"
+    priority = "normal"             # review weekly
+```
+
+Three priorities map to three SLAs that any reasonable curation team can sustain:
+
+- **Critical**: contradictions against Constitutional axioms. Page someone. Resolve same day.
+- **High**: contradictions against VERIFIED facts (score ≥ 0.70). Review within 24h.
+- **Normal**: contradictions among extracted/inferred facts. Weekly queue.
+
+You can tune the thresholds per POT. Healthcare or legal POTs might run a tighter ship; a developer documentation POT might be looser.
+
+## Resolution — what a Human Curator actually does
+
+When a contradiction lands in the review queue, the curator has four options:
+
+### 1. Keep A, demote B
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/contradictions/{review_id}/resolve" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -d '{
+    "resolution": "keep_a",
+    "demote_b": true,
+    "demote_b_to_level": "PENDING",
+    "curator_id": "user_cfo_001",
+    "rationale": "Fact A is from 2026 CFO-approved memo; Fact B is from a 2024 sales playbook that predates the policy change."
+  }'
+```
+
+Fact A stays at its current score. Fact B is demoted to PENDING (or whatever level the curator chose) and marked as `superseded_by` fact A.
+
+### 2. Keep B, demote A
+
+Symmetric to the above.
+
+### 3. Refine — both are true, but in different scopes
+
+When both facts are actually correct in different contexts:
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/contradictions/{review_id}/resolve" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -d '{
+    "resolution": "refine",
+    "refinement_a": "Standard enterprise pricing floor is $25K ARR (2026 onward).",
+    "refinement_b": "Legacy enterprise contracts grandfathered at $50K floor (signed pre-2024).",
+    "curator_id": "user_cfo_001",
+    "rationale": "Both true, distinct scopes. Annotating to disambiguate."
+  }'
+```
+
+The CONTRADICTS edge is removed; both facts are rewritten with scope qualifiers; new `REFINES` edges link them to a parent claim.
+
+### 4. Defer — neither is authoritative yet
+
+When the contradiction reveals that *nobody knows* the truth:
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/{pot_id}/contradictions/{review_id}/resolve" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -d '{
+    "resolution": "defer",
+    "demote_both_to_level": "HYPOTHESIS",
+    "curator_id": "user_cfo_001",
+    "rationale": "Pricing policy under active review. Both quotes are speculative until Q3 board decision."
+  }'
+```
+
+Both facts get demoted, and the CONTRADICTS edge persists with `status: open_until_decision`. The contradiction stays visible to anyone querying.
+
+## How agents should handle contradictions
+
+When your agent queries a SciPot POT and the response includes `contradictions_found`, the right behavior depends on the use case:
+
+**Low-stakes queries** (developer assistant, internal tools): proceed with the higher-scored fact, surface the contradiction in the agent's output.
+
+```typescript
+const result = await scipot.synthesize({ query, include_epistemic_briefing: true });
+const answer = result.answer;
+const caveats = result.contradictions_found.length > 0
+  ? `\n\n⚠️ Note: this answer involves unresolved sources. ${result.epistemic_briefing.limitations.join(' ')}`
+  : '';
+return answer + caveats;
+```
+
+**High-stakes queries** (legal, medical, financial advice): refuse to answer until the contradiction is resolved.
+
+```typescript
+const result = await scipot.synthesize({ query, include_epistemic_briefing: true });
+
+if (result.contradictions_found.some(c => c.priority === 'critical' || c.priority === 'high')) {
+  return {
+    answer: null,
+    deferred: true,
+    reason: 'Unresolved contradiction on canonical sources. Escalating to human review.',
+    review_ids: result.contradictions_found.map(c => c.review_id)
+  };
+}
+
+return { answer: result.answer };
+```
+
+The choice is yours. SciPot gives you the contradiction; you decide what to do with it.
+
+## What this gives you that nothing else does
+
+You're trading a small amount of complexity (a review queue, a per-POT contradiction policy, occasional human attention) for a large amount of safety:
+
+- Your agent will never silently average two opposing claims into a fluent lie.
+- Your post-mortem on an agent mistake will tell you exactly which sources were involved.
+- Your knowledge base will not silently lose established knowledge when an LLM hallucinates a contradictory fact.
+- You can audit "what we believed about X on date Y" and get a real answer.
+
+That is the cost of trust. And on the other side of that cost is the only memory layer that lets you put AI agents in production on consequential work without losing sleep over what they might quietly invent.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Curators" icon="users-gear" href="/trust-mechanics/curators">
+    Who resolves contradictions, and how the review queue works.
+  </Card>
+  <Card title="POT Score & Provenance" icon="scale-balanced" href="/trust-mechanics/pot-score-and-provenance">
+    The score system that gives contradiction priority its meaning.
+  </Card>
+</CardGroup>

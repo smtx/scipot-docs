@@ -1,0 +1,130 @@
+---
+title: "When to use SciPot (and when not to)"
+sidebarTitle: "When to use SciPot"
+description: "Honest guidance on the problems SciPot solves well, the problems where a different tool is the right answer, and the smell tests that distinguish them."
+---
+
+The most useful thing a docs page can do is help you decide whether to *not* use the product. Saves you a week.
+
+So: when is SciPot the right answer, and when isn't it?
+
+---
+
+## Use SciPot when…
+
+### 1. Your agents make decisions that have consequences
+
+If your AI is recommending which trade to execute, which patient protocol to follow, which contract clause to accept, or which engineering decision to make — you need to know *how much to trust* what it says.
+
+A confident-sounding answer from a vanilla RAG pipeline is dangerous in these contexts. SciPot's POT Score tells your agent (and the human reviewing the agent) exactly how confident the underlying knowledge is. A 0.95 fact and a 0.42 fact get treated differently, automatically.
+
+**Smell test:** Could a wrong answer cost more than $1,000 in money, time, reputation, or compliance risk? → SciPot.
+
+### 2. Your domain has experts whose judgment matters
+
+If there are people in your organization whose word actually *counts* on certain topics — the CFO on pricing, the lead engineer on architecture, the head of legal on compliance — SciPot treats them as Human Curators with first-class API support.
+
+They can promote facts to Constitutional level. They can resolve contradictions. They can approve or disapprove extracted facts with audit-trailed records. Their input doesn't get washed away by the next extraction batch.
+
+**Smell test:** Is there at least one person whose answer you'd take over the LLM's, on at least one topic? → SciPot.
+
+### 3. Your knowledge base has internal contradictions
+
+If you're consolidating Slack threads, Notion pages, customer interviews, decision memos, post-mortems — there *will* be contradictions. The 2024 pricing memo says $99. The 2025 pricing update says $129. The sales team is quoting $119. All three exist in your data.
+
+A typical RAG pipeline averages them into a fluent answer with no flag. SciPot detects the contradiction (via typed epistemic edges), flags it explicitly, and either escalates to a Curator or surfaces the conflict to the calling agent.
+
+**Smell test:** Do you have multiple sources that disagree, and does it matter which is right? → SciPot.
+
+### 4. You need an audit trail
+
+Compliance, due diligence, internal reviews, post-mortems — sometimes you need to answer "where did this answer come from?" two months after the fact. Vector stores can't tell you that. They store chunks; they don't store *attribution at the fact level*.
+
+SciPot's provenance is a first-class field on every fact. Source document, extraction method, who curated it, when it was promoted to Verified — all in the audit trail.
+
+**Smell test:** If someone asked "why did the agent say that?" six months from now, do you need to be able to answer? → SciPot.
+
+### 5. You're betting on agents that get *better* over time
+
+If your goal is agents that improve as your team uses them — incorporating new decisions, refining their understanding of edge cases, learning what the human Curators consistently approve or disapprove — SciPot is built for that. It has a contribution surface (`POST /facts/contribute`), a curation surface (`POST /facts/{id}/curate`), and expertise-based scoring that rewards accurate contributors.
+
+**Smell test:** Do you imagine your agent being smarter in 6 months than it is today, *because of how your team has used it*? → SciPot.
+
+---
+
+## Don't use SciPot when…
+
+### 1. You just need stateless single-turn responses
+
+If your AI agent is essentially a polished chatbot — user asks, agent answers, conversation ends — and you don't need memory across sessions, you don't need SciPot. Use the foundation model's built-in context window.
+
+**The honest reason:** SciPot's overhead (ingestion pipeline, score propagation, edge detection) is only worth it if facts persist and accumulate.
+
+### 2. You need pure semantic search over a static corpus
+
+If your use case is "I have 10,000 product docs and I want users to search them with natural-language queries," that's textbook RAG. Use Pinecone, Weaviate, or pgvector. They're cheaper, faster, and equally good for that specific shape.
+
+**The honest reason:** SciPot adds value when retrieval needs to be *justified*. If "just return the most semantically similar chunks" is the actual product requirement, SciPot is over-engineered.
+
+### 3. You only need conversation memory
+
+If you want "remember what the user said earlier in this thread" — that's session memory, not persistent organizational knowledge. Mem0 and Zep are specifically optimized for that shape; they have better SDK ergonomics, simpler setup, and lower latency for chat-shaped data.
+
+**The honest reason:** SciPot is designed for facts that outlive a single conversation. If your memory horizon is hours, not months, the wrong tool is in your hand.
+
+### 4. You're prototyping and setup time matters more than trust
+
+If you're hacking together a demo for a Friday investor pitch, SciPot's full setup (POT creation, Constitution authoring, ingestion, edge detection) is friction you don't need. OpenAI File Search will get you a working demo in 20 minutes.
+
+**The honest reason:** SciPot's value is most visible in production, on real data, over months. In a 48-hour hackathon, that value won't have time to materialize.
+
+### 5. You don't have a human-in-the-loop available
+
+SciPot's full power requires at least one Human Curator — someone who can write the Constitution, resolve contradictions, and approve high-stakes facts. If your operational reality is "no one will ever look at this; it has to be fully autonomous," SciPot will still work, but you're paying for capability you can't activate.
+
+**The honest reason:** The Agentic Curator handles ~80% of maintenance. The remaining 20% — the part that determines whether the system stays trustworthy as it grows — needs a human.
+
+---
+
+## Borderline cases (and what tips them)
+
+### "We're building an internal knowledge assistant for our 50-person team"
+
+- **SciPot** if you want every employee's contributions tracked, contradictions surfaced, and your VP of Eng's word to actually count more than a Slack thread.
+- **Notion AI / Glean** if you want polish-over-precision and don't have anyone to curate.
+
+### "We're building a developer-facing AI agent that answers questions about our API"
+
+- **SciPot** if your API surface has multiple versions, deprecated endpoints, and edge cases where being subtly wrong is dangerous.
+- **OpenAI File Search** if your docs are clean, versioned, and you trust the LLM to handle disambiguation.
+
+### "We're building a customer support bot"
+
+- **SciPot** if support quality is a revenue driver and you have a head of CX who curates answers from real tickets.
+- **Mem0 + a vector store** if support is a cost center and "good enough" answers are the bar.
+
+### "We're building an analytics agent that reasons over our data warehouse"
+
+- **SciPot** for the *semi-structured business knowledge* layer (definitions, policies, decisions) the agent needs to reason about.
+- **Your warehouse + Text-to-SQL** for the actual data queries. These are complementary, not competing.
+
+---
+
+## The honest meta-answer
+
+SciPot is opinionated about a specific shape of problem: **production AI agents operating on organizational knowledge, with humans in the loop, where trust and audit matter**.
+
+It is not a vector DB. It is not a chat memory. It is not a wiki. It is not a data warehouse. It is the *layer between* your data and your agents — where facts get scored, sources get tracked, contradictions get flagged, and humans get to weigh in on what counts as canon.
+
+If that shape matches your problem, SciPot is differentiated and worth the setup time. If it doesn't, we'll point you at the right tool. We've been honest above; we'll be honest in support.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Why SciPot exists" icon="book-open" href="/big-picture/why-scipot-exists">
+    The thesis behind the product.
+  </Card>
+  <Card title="Build your first Company Brain" icon="rocket" href="/guides/build-your-first-company-brain">
+    If you've decided SciPot fits, start here.
+  </Card>
+</CardGroup>

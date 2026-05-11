@@ -1,0 +1,122 @@
+---
+title: "Why SciPot exists"
+sidebarTitle: "Why SciPot exists"
+description: "Organizations have more information, more AI tools, and more compute than ever. And yet — organizational intelligence doesn't accumulate. It evaporates."
+---
+
+## The problem nobody wants to name
+
+Organizations have more information than ever. More AI tools than ever. More compute than ever.
+
+And yet:
+
+- Every time someone leaves, they take critical knowledge with them.
+- Every new project starts from zero.
+- Every important decision depends on finding the right person at the right moment.
+
+**Organizational intelligence doesn't accumulate. It evaporates.**
+
+The market is obsessed with bigger models, faster copilots, more elaborate prompts. But:
+
+- A giant model without context is still generic.
+- A copilot without memory still starts from zero every morning.
+- **95% of enterprise GenAI pilots don't generate measurable P&L impact** ([MIT NANDA, "The GenAI Divide", August 2025](https://nanda.media.mit.edu/ai_report_2025.pdf)).
+- **Over 40% of AI Agent projects will be cancelled by 2027** due to costs, lack of clear ROI, or inadequate controls ([Gartner, June 2025](https://www.gartner.com/en/newsroom/press-releases/2025-06-25-gartner-predicts-over-40-percent-of-agentic-ai-projects-will-be-canceled-by-end-of-2027)).
+
+The problem isn't the technology. **The problem is that intelligence has nowhere to live.**
+
+---
+
+## The thesis
+
+> "The competitive advantage is no longer in *using* AI. It's in *structuring where and how it thinks*."
+
+The first wave was "AI that responds." The second wave is **AI that remembers, learns, and specializes**.
+
+Stripe solved payments. Twilio solved communications. **SciPot solves memory for AI agents.**
+
+Memory-as-a-Service: the missing infrastructure that makes the 95% work.
+
+---
+
+## What's actually different
+
+Today's AI agents are like employees with amnesia. Every conversation starts from zero. Without persistent memory, there's no context. Without context, there's no business value.
+
+The fixes the industry has tried — vector stores, RAG pipelines, conversation memory, file search — all share the same blind spot: **they retrieve information without ever telling you how much to trust it**.
+
+A vector store returns "chunks similar to your query." A typical RAG pipeline returns "documents that probably mention the topic." OpenAI File Search returns "passages from your uploaded files." None of them tell you:
+
+- **Where did this fact actually come from** (a specific paragraph in a specific document, written by whom, on what date)?
+- **How certain is the system** that this fact is true (0.85 vs 0.42 is a meaningful difference)?
+- **Does any other fact in the knowledge base contradict it** (and if so, was the contradiction surfaced or silently ignored)?
+- **Who decided this fact belongs in the canon** (an extraction LLM at 2am, or a Human Curator with domain authority)?
+
+SciPot answers all four. The unit isn't a chunk or a passage — it's a **scored, sourced, contradiction-aware fact** living inside a knowledge container (a POT) with explicit foundational axioms (a Constitution) and a clear workflow for curation.
+
+That's the difference between "retrieval" and **memory you can trust in production**.
+
+---
+
+## What is a Company Brain?
+
+A **Company Brain** is a SciPot POT scoped to an organization's knowledge: pricing decisions, hiring policies, post-mortems, product roadmaps, customer feedback, internal processes. It's the canonical source the company's AI agents query before they act.
+
+Unlike a wiki, a Company Brain:
+
+- **Knows what it knows, and what it doesn't.** Every fact has a POT Score.
+- **Knows where it learned each fact.** Every score has a source.
+- **Knows when two of its beliefs disagree.** Every contradiction is flagged for a Human Curator.
+- **Evolves under governance.** New facts go through extraction, scoring, edge detection, and (when stakes are high) Human Curator approval — not "save and pray."
+
+A Company Brain doesn't replace your wiki, your CRM, or your data warehouse. It sits on top of them, **as the trust layer your agents use to reason**.
+
+---
+
+## The four retrieval strategies
+
+SciPot uses a **Hybrid Router** that intelligently composes four retrieval strategies, picking the best one — or combination — for each query:
+
+| Strategy | Best for | Latency |
+|---|---|---|
+| **CAG** (Cached Augmented Generation) | Factual lookups with known entity references | <5 ms |
+| **RAG** (Retrieval Augmented Generation) | Semantic queries, paraphrased questions | ~200 ms |
+| **GraphRAG** | Relational queries that traverse edges between facts | ~500 ms |
+| **DocumentIndex** | Hierarchical document reasoning (coming) | ~1 s |
+
+Each strategy returns facts ranked by a combined score: `combined = (similarity × 0.7) + (pot_score × 0.3)`. The Hybrid Router classifies the incoming query and chooses the optimal strategy automatically — or you can pin a strategy explicitly when you have a preference.
+
+[Read more about retrieval strategies →](/guides/retrieval-strategies)
+
+---
+
+## The wager
+
+SciPot is a wager on two beliefs:
+
+1. **Memory is the unsolved layer of the agentic economy.** Models keep getting better. Tools keep getting cheaper. The thing that hasn't been figured out is *where AI's working knowledge lives, how it's validated, and how it survives the people who created it*. That's a category — not a feature.
+
+2. **Trust is the moat.** Anyone can store text. Anyone can return chunks. Few systems can return facts with receipts, detect contradictions, and let humans govern their own canon. That's the work. That's SciPot.
+
+If those two beliefs are right, SciPot becomes infrastructure the same way Stripe became infrastructure: invisible when working, indispensable in retrospect.
+
+If they're wrong, you'll know in 18 months because someone will have built a better answer. We're betting that no one will, because nobody else is starting from "every fact has a score, every score has a source, every contradiction is flagged."
+
+---
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="How SciPot is different" icon="bullseye-arrow" href="/big-picture/how-scipot-is-different">
+    Side-by-side with vector DBs, memory layers, and OpenAI File Search.
+  </Card>
+  <Card title="When to use SciPot" icon="circle-question" href="/big-picture/when-to-use-scipot">
+    And — equally important — when not to.
+  </Card>
+  <Card title="POT Score & Provenance" icon="scale-balanced" href="/trust-mechanics/pot-score-and-provenance">
+    Every fact has a score. Every score has a source. Here's how.
+  </Card>
+  <Card title="Build your first Company Brain" icon="rocket" href="/guides/build-your-first-company-brain">
+    From zero to a working brain your agents can query, in under 30 minutes.
+  </Card>
+</CardGroup>

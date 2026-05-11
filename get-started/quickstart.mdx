@@ -1,0 +1,441 @@
+---
+title: "Quickstart: Build an Agent with Memory"
+sidebarTitle: "Quickstart"
+description: "From zero to a working query against your own Company Brain in under 5 minutes. Copy-paste in curl, JavaScript, or Python."
+---
+
+This page walks the full happy path: get a key, create a POT, ingest a document, ask a question, see receipts. End-to-end, it's six API calls. With a working key, you'll be done in five minutes.
+
+If you don't have an API key yet, see [Authentication & API Keys →](/get-started/authentication). The rest of this page assumes you do.
+
+<Steps>
+  <Step title="Set your environment">
+    ```bash
+    export SCIPOT_KEY="ik_live_xxxxxxxxxxxxx"        # from your integrator dashboard
+    export SCIPOT_WORKSPACE="01971abc-..."           # your workspace UUID
+    export SCIPOT_BASE="https://api.scipot.ai"
+    ```
+
+    Every authenticated request needs `X-API-Key: $SCIPOT_KEY` and `X-Workspace-ID: $SCIPOT_WORKSPACE`. The base URL is `https://api.scipot.ai` in production.
+  </Step>
+
+  <Step title="Create your first POT">
+    A POT is a knowledge container with a Constitution (3–7 foundational axioms). The Constitution defines what's true in the domain and what falls outside it. Without it, the POT has no anchor.
+
+    <CodeGroup>
+    ```bash curl
+    curl -X POST "$SCIPOT_BASE/pots/from-json" \
+      -H "X-API-Key: $SCIPOT_KEY" \
+      -H "X-Workspace-ID: $SCIPOT_WORKSPACE" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Acme Engineering Brain",
+        "slug": "acme-eng",
+        "description": "Canonical engineering knowledge for the Acme team.",
+        "domain": "software-engineering",
+        "constitution": [
+          "Acme is a B2B SaaS company. Decisions are evaluated by enterprise customer impact first.",
+          "We optimize for correctness over cleverness.",
+          "Production incidents are post-mortemed within 5 business days. Post-mortems are blameless.",
+          "Architecture decisions are documented as ADRs. ADRs supersede Slack threads."
+        ]
+      }'
+    ```
+
+    ```javascript fetch
+    const res = await fetch(`${SCIPOT_BASE}/pots/from-json`, {
+      method: "POST",
+      headers: {
+        "X-API-Key": SCIPOT_KEY,
+        "X-Workspace-ID": SCIPOT_WORKSPACE,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "Acme Engineering Brain",
+        slug: "acme-eng",
+        description: "Canonical engineering knowledge for the Acme team.",
+        domain: "software-engineering",
+        constitution: [
+          "Acme is a B2B SaaS company. Decisions are evaluated by enterprise customer impact first.",
+          "We optimize for correctness over cleverness.",
+          "Production incidents are post-mortemed within 5 business days. Post-mortems are blameless.",
+          "Architecture decisions are documented as ADRs. ADRs supersede Slack threads.",
+        ],
+      }),
+    });
+    if (!res.ok) throw new Error(`POT create failed: ${res.status} ${await res.text()}`);
+    const pot = await res.json();
+    console.log("Created POT:", pot.id);
+    ```
+
+    ```python httpx
+    import os, httpx
+
+    base = os.environ["SCIPOT_BASE"]
+    headers = {
+        "X-API-Key": os.environ["SCIPOT_KEY"],
+        "X-Workspace-ID": os.environ["SCIPOT_WORKSPACE"],
+    }
+
+    res = httpx.post(
+        f"{base}/pots/from-json",
+        headers=headers,
+        json={
+            "name": "Acme Engineering Brain",
+            "slug": "acme-eng",
+            "description": "Canonical engineering knowledge for the Acme team.",
+            "domain": "software-engineering",
+            "constitution": [
+                "Acme is a B2B SaaS company. Decisions are evaluated by enterprise customer impact first.",
+                "We optimize for correctness over cleverness.",
+                "Production incidents are post-mortemed within 5 business days. Post-mortems are blameless.",
+                "Architecture decisions are documented as ADRs. ADRs supersede Slack threads.",
+            ],
+        },
+        timeout=30.0,
+    )
+    res.raise_for_status()
+    pot = res.json()
+    print("Created POT:", pot["id"])
+    ```
+    </CodeGroup>
+
+    Save the `id` field from the response. You'll use it as `{pot_id}` in every subsequent call.
+
+    ```bash
+    export POT_ID="01971abc-..."
+    ```
+  </Step>
+
+  <Step title="Ingest a document">
+    Feed the POT some text. The system chunks it, extracts atomic facts via LLM, scores each fact with provenance, runs edge detection against the Constitution, and propagates scores. All of this is asynchronous — the call returns a job ID immediately.
+
+    <CodeGroup>
+    ```bash curl
+    curl -X POST "$SCIPOT_BASE/pots/$POT_ID/ingest" \
+      -H "X-API-Key: $SCIPOT_KEY" \
+      -H "X-Workspace-ID: $SCIPOT_WORKSPACE" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "content": "Our retry policy for the payments API is exponential backoff with jitter, max 5 attempts. We use a base delay of 200ms and a cap of 8 seconds. This was decided in ADR-2026-014 after the payment outage on 2026-03-12 caused by aggressive linear retries.",
+        "source": {
+          "path": "adr/ADR-2026-014.md",
+          "type": "markdown",
+          "author": "eng-lead",
+          "tags": ["adr", "retry-policy", "payments"]
+        }
+      }'
+    ```
+
+    ```javascript fetch
+    const res = await fetch(`${SCIPOT_BASE}/pots/${POT_ID}/ingest`, {
+      method: "POST",
+      headers: {
+        "X-API-Key": SCIPOT_KEY,
+        "X-Workspace-ID": SCIPOT_WORKSPACE,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        content: "Our retry policy for the payments API is exponential backoff with jitter, max 5 attempts. Base delay 200ms, cap 8s. Decided in ADR-2026-014 after the 2026-03-12 outage.",
+        source: { path: "adr/ADR-2026-014.md", type: "markdown", author: "eng-lead", tags: ["adr", "retry-policy", "payments"] },
+      }),
+    });
+    const { job_id } = await res.json();
+    console.log("Ingestion job:", job_id);
+    ```
+
+    ```python httpx
+    res = httpx.post(
+        f"{base}/pots/{POT_ID}/ingest",
+        headers=headers,
+        json={
+            "content": "Our retry policy for the payments API is exponential backoff with jitter, max 5 attempts. Base delay 200ms, cap 8s. Decided in ADR-2026-014 after the 2026-03-12 outage.",
+            "source": {"path": "adr/ADR-2026-014.md", "type": "markdown", "author": "eng-lead", "tags": ["adr", "retry-policy", "payments"]},
+        },
+        timeout=30.0,
+    )
+    res.raise_for_status()
+    job_id = res.json()["job_id"]
+    print("Ingestion job:", job_id)
+    ```
+    </CodeGroup>
+
+    The response is a `202 Accepted` with a job ID:
+
+    ```json
+    {
+      "job_id": "01971xyz-...",
+      "pot_id": "01971abc-...",
+      "status": "pending",
+      "message": "Document ingestion queued"
+    }
+    ```
+  </Step>
+
+  <Step title="Poll the job until complete">
+    Ingestion runs through ~7 steps: generating context → chunking → extracting facts → building facts → persisting → detecting edges → propagating scores. For a small document like the example above, it completes in 5–15 seconds.
+
+    <CodeGroup>
+    ```bash curl
+    # Poll every 2 seconds
+    while true; do
+      RESPONSE=$(curl -s "$SCIPOT_BASE/jobs/$JOB_ID" \
+        -H "X-API-Key: $SCIPOT_KEY" \
+        -H "X-Workspace-ID: $SCIPOT_WORKSPACE")
+      STATUS=$(echo "$RESPONSE" | jq -r '.status')
+      echo "Status: $STATUS"
+      if [ "$STATUS" = "completed" ] || [ "$STATUS" = "failed" ]; then
+        echo "$RESPONSE" | jq
+        break
+      fi
+      sleep 2
+    done
+    ```
+
+    ```javascript fetch
+    async function waitForJob(jobId) {
+      while (true) {
+        const res = await fetch(`${SCIPOT_BASE}/jobs/${jobId}`, {
+          headers: { "X-API-Key": SCIPOT_KEY, "X-Workspace-ID": SCIPOT_WORKSPACE },
+        });
+        const job = await res.json();
+        console.log(`Status: ${job.status}`, job.progress);
+        if (job.status === "completed") return job;
+        if (job.status === "failed") throw new Error(`Job failed: ${job.error.message}`);
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+    const job = await waitForJob(job_id);
+    console.log("Facts extracted:", job.result.facts_created);
+    ```
+
+    ```python httpx
+    import time
+
+    def wait_for_job(job_id: str):
+        while True:
+            res = httpx.get(f"{base}/jobs/{job_id}", headers=headers, timeout=10.0)
+            res.raise_for_status()
+            job = res.json()
+            print(f"Status: {job['status']}", job.get("progress"))
+            if job["status"] == "completed":
+                return job
+            if job["status"] == "failed":
+                raise RuntimeError(f"Job failed: {job['error']['message']}")
+            time.sleep(2)
+
+    job = wait_for_job(job_id)
+    print("Facts extracted:", job["result"]["facts_created"])
+    ```
+    </CodeGroup>
+
+    A `completed` job returns extraction summary and edge-detection results:
+
+    ```json
+    {
+      "job_id": "01971xyz-...",
+      "status": "completed",
+      "result": {
+        "chunks_processed": 1,
+        "facts_created": 4,
+        "edges_created": 2,
+        "scores_updated": 4,
+        "processing_time_ms": 8420,
+        "extraction_audit": {
+          "total_extracted": 4,
+          "kept": 4,
+          "discarded": 0
+        }
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Ask your POT a question">
+    Now the payoff. Query your Company Brain with a natural-language question. The synthesizer retrieves the relevant facts (using the Hybrid Router to pick the best strategy), composes an answer, and returns the answer **with receipts**: cited facts, POT Scores, source provenance, contradictions, and an epistemic briefing.
+
+    <CodeGroup>
+    ```bash curl
+    curl -X POST "$SCIPOT_BASE/pots/$POT_ID/synthesize" \
+      -H "X-API-Key: $SCIPOT_KEY" \
+      -H "X-Workspace-ID: $SCIPOT_WORKSPACE" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "query": "What is our retry policy for the payments API?",
+        "max_facts": 5,
+        "include_epistemic_briefing": true
+      }'
+    ```
+
+    ```javascript fetch
+    const res = await fetch(`${SCIPOT_BASE}/pots/${POT_ID}/synthesize`, {
+      method: "POST",
+      headers: {
+        "X-API-Key": SCIPOT_KEY,
+        "X-Workspace-ID": SCIPOT_WORKSPACE,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: "What is our retry policy for the payments API?",
+        max_facts: 5,
+        include_epistemic_briefing: true,
+      }),
+    });
+    const result = await res.json();
+    console.log("Answer:", result.answer);
+    console.log("Confidence:", result.epistemic_briefing.confidence_level);
+    for (const fact of result.facts_used) {
+      console.log(`  [${fact.pot_score.toFixed(2)}] ${fact.content} (${fact.provenance.sources[0].title})`);
+    }
+    ```
+
+    ```python httpx
+    res = httpx.post(
+        f"{base}/pots/{POT_ID}/synthesize",
+        headers=headers,
+        json={
+            "query": "What is our retry policy for the payments API?",
+            "max_facts": 5,
+            "include_epistemic_briefing": True,
+        },
+        timeout=60.0,
+    )
+    res.raise_for_status()
+    result = res.json()
+
+    print("Answer:", result["answer"])
+    print("Confidence:", result["epistemic_briefing"]["confidence_level"])
+    for fact in result["facts_used"]:
+        title = fact["provenance"]["sources"][0]["title"]
+        print(f"  [{fact['pot_score']:.2f}] {fact['content']} ({title})")
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Read the receipt">
+    Here's what comes back. Notice what's *in* the response: an answer, the facts that produced it, their scores, where each came from, and an explicit briefing on the system's confidence.
+
+    ```json
+    {
+      "answer": "Acme's payments-API retry policy is exponential backoff with jitter, max 5 attempts, 200ms base delay, 8s cap. This was set in ADR-2026-014 after a March 2026 outage caused by aggressive linear retries.",
+      "facts_used": [
+        {
+          "id": "01971...",
+          "content": "Payments-API retry uses exponential backoff with jitter, max 5 attempts.",
+          "pot_score": 0.72,
+          "level": "SUPPORTED",
+          "provenance": {
+            "type": "extracted",
+            "sources": [{ "title": "adr/ADR-2026-014.md", "author": "eng-lead", "reliability": "medium" }]
+          }
+        },
+        {
+          "id": "01971...",
+          "content": "Base delay is 200ms, capped at 8 seconds.",
+          "pot_score": 0.72,
+          "level": "SUPPORTED",
+          "provenance": { "type": "extracted", "sources": [{ "title": "adr/ADR-2026-014.md" }] }
+        }
+      ],
+      "strategy_used": "rag",
+      "contradictions_found": [],
+      "epistemic_briefing": {
+        "confidence_level": "medium",
+        "coverage": "comprehensive",
+        "limitations": [
+          "Facts are extracted (score 0.72) but not yet Human-Curator verified."
+        ]
+      },
+      "llm_model": "gpt-4o-mini",
+      "latency_ms": 1820
+    }
+    ```
+
+    That `epistemic_briefing` is the thing other memory layers don't give you. Your agent now knows what it knows, what it doesn't, and how confident the system is in each claim.
+  </Step>
+</Steps>
+
+## Promote a fact to VERIFIED (optional)
+
+The retrieved facts came back at `SUPPORTED` (POT Score 0.72). That's because they were LLM-extracted from one document. Once a Human Curator has confirmed the policy is canonical, you can promote them:
+
+<CodeGroup>
+```bash curl
+curl -X POST "$SCIPOT_BASE/pots/$POT_ID/facts/$FACT_ID/curate" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "approve",
+    "promote_to_level": "VERIFIED",
+    "curator_id": "user_cto_001",
+    "rationale": "Confirmed against ADR-2026-014. This is the canonical retry policy."
+  }'
+```
+
+```javascript fetch
+await fetch(`${SCIPOT_BASE}/pots/${POT_ID}/facts/${FACT_ID}/curate`, {
+  method: "POST",
+  headers: {
+    "X-API-Key": SCIPOT_KEY,
+    "X-Workspace-ID": SCIPOT_WORKSPACE,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    action: "approve",
+    promote_to_level: "VERIFIED",
+    curator_id: "user_cto_001",
+    rationale: "Confirmed against ADR-2026-014. This is the canonical retry policy.",
+  }),
+});
+```
+
+```python httpx
+httpx.post(
+    f"{base}/pots/{POT_ID}/facts/{FACT_ID}/curate",
+    headers=headers,
+    json={
+        "action": "approve",
+        "promote_to_level": "VERIFIED",
+        "curator_id": "user_cto_001",
+        "rationale": "Confirmed against ADR-2026-014. This is the canonical retry policy.",
+    },
+    timeout=10.0,
+)
+```
+</CodeGroup>
+
+Next time the same query runs, those facts will return with `pot_score: 0.92`, `level: "VERIFIED"`, and `provenance.curated_by: "user_cto_001"`.
+
+## Error handling (the parts the happy-path skips)
+
+In production, you should handle:
+
+- **`429 Too Many Requests`** — rate limit. Back off and retry with exponential delay. The `Retry-After` header tells you when.
+- **`401 Unauthorized`** — bad key or missing workspace header. Don't retry.
+- **`422 Unprocessable Entity`** — malformed payload, including `content` exceeding the 100 KB inline-text limit. Validate before sending.
+- **`5xx`** — server error. Retry with backoff, but cap attempts.
+- **Job `status: "failed"`** — surfaces an error envelope under `error`: `{code, message, cause, fix, docs_url, request_id, retryable}`. Log `request_id` for support.
+
+See [API Reference → Errors](/api-reference/errors) for the full envelope shape and code list.
+
+<Note>
+**Document size limits.** This Quickstart uses `POST /pots/{pot_id}/ingest`, which has a **100 KB cap on the inline `content` field** — appropriate for programmatic text snippets. For larger documents (PDFs, DOCX, large markdown files), use the upload pipeline instead: `POST /documents/upload` (default 50 MB cap, with auto-conversion to Markdown) followed by `POST /pots/{pot_id}/extract-from-document`. See the [Ingest domain knowledge](/guides/ingest-domain-knowledge) guide.
+</Note>
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Ingest domain knowledge" icon="upload" href="/guides/ingest-domain-knowledge">
+    Beyond text snippets: upload PDFs, DOCX, PPTX, XLSX with auto-conversion.
+  </Card>
+  <Card title="Wire to Claude or GPT" icon="plug" href="/guides/wire-to-claude-or-gpt">
+    Make your existing agent actually query SciPot. Tool-call shims for both.
+  </Card>
+  <Card title="Curate facts" icon="hand-pointer" href="/guides/curate-facts">
+    Approve, disapprove, promote, demote. The Curator workflow in production.
+  </Card>
+  <Card title="Handle contradictions" icon="triangle-exclamation" href="/guides/handle-contradictions-in-production">
+    What to do when your agent surfaces unresolved sources.
+  </Card>
+</CardGroup>

@@ -1,0 +1,170 @@
+---
+title: "How SciPot is different"
+sidebarTitle: "How SciPot is different"
+description: "Side-by-side with vector DBs, memory layers, and OpenAI File Search. What changes when 'every fact has a score, every score has a source, every contradiction is flagged.'"
+---
+
+If you've already built a RAG pipeline, you know the failure mode. The system returns five passages, your LLM synthesizes a confident-sounding answer, and you have no idea whether the answer is true. You can't tell if two retrieved passages contradict each other. You can't tell which passage came from the CEO's strategy memo versus a random Slack thread. You can't tell what the system *isn't* confident about.
+
+SciPot makes those questions answerable — by design, not by convention.
+
+---
+
+## The five differences that matter
+
+### 1. The unit of storage is a fact, not a chunk
+
+A vector store stores text chunks (typically 500-2,000 tokens each), then returns the chunks most similar to your query. The chunk is opaque — it might contain three claims, two contradictions, and a footnote, all melted together.
+
+SciPot extracts **facts** from your documents. Each fact is a single atomic claim with:
+
+- An explicit identity (UUIDv7, chronologically sortable)
+- A POT Score between 0.0 and 1.0
+- Source provenance (which document, which section, what extraction method)
+- Edges to other facts (supports, contradicts, refines, derives_from)
+- Timestamps, tags, classification metadata
+
+This is a different posture: SciPot treats your data as something that can be *known about*, not just something to be retrieved from.
+
+### 2. Certainty is a number, not a vibe
+
+Most retrieval systems return a similarity score. Similarity tells you "this passage is close to your query in vector space" — it does not tell you "this passage is true."
+
+SciPot returns a **POT Score** (Proof of Truth): a calibrated 0.0–1.0 number reflecting how much the system trusts the underlying fact. Score 1.0 means the fact is a Constitutional axiom (set by a Human Curator). Score 0.85 means it's been verified by multiple sources or human validation. Score 0.42 means it was inferred by automated reasoning and should be treated as a working hypothesis.
+
+POT Scores don't replace similarity — they live alongside it. The final ranking is:
+
+```
+combined_score = (similarity × 0.7) + (pot_score × 0.3)
+```
+
+So a perfectly-similar passage that the system distrusts gets demoted. A modestly-similar passage that's a Constitutional axiom gets boosted. Your agent doesn't just see "what's relevant" — it sees "what's relevant *and* trustworthy."
+
+### 3. Contradictions don't get silently averaged away
+
+In a vector store, if two passages contradict each other, the LLM synthesizes from both. You get a fluent answer that internally averages two opposing claims. The contradiction is invisible.
+
+SciPot uses **typed epistemic edges** between facts: `SUPPORTS`, `CONTRADICTS`, `REFINES`, `DERIVES_FROM`. These edges are detected automatically during ingestion (and on demand via `POST /edges/detect`). When the synthesizer runs, it sees the contradiction graph and surfaces it explicitly — either flagging the answer with low confidence, deferring to a Human Curator, or returning both sides for the agent to handle.
+
+Score propagation respects edge semantics:
+
+- `SUPPORTS`: boost by 0.15
+- `CONTRADICTS`: **flag only — no auto-resolution; requires Human Curator review**
+- `DERIVES_FROM`: ≤ premise × 0.90 × weight
+- `REFINES`: max inheritance × 0.95
+
+Contradictions stay loud. That's a feature.
+
+### 4. The canon has guardrails
+
+In most retrieval systems, your data is a flat pile. Everything is equally authoritative — or equally suspect.
+
+SciPot gives every POT a **Constitution**: 3–7 foundational axioms set by a Human Curator that define the domain. These axioms have POT Score 1.0 and cannot be modified except through explicit governance. Everything else (extracted facts, inferred facts, contributed facts) lives below the Constitution and is scored, validated, and curated relative to it.
+
+The result: **your AI agent operates inside a knowledge space with an explicit foundation**. The Constitution is what makes a "Company Brain" different from a knowledge graph or wiki — it's the wager you've made about what's true in your domain, and everything else is judged against it.
+
+### 5. Humans are first-class citizens
+
+SciPot ships with two Curator roles:
+
+- **Agentic Curator** — automated maintenance: ingestion, edge detection, score propagation, obvious contradiction flagging. Runs 24/7. Cheap. Approximate.
+- **Human Curator** — expert validation: complex contradiction resolution, Constitution governance, promotion of facts to higher certainty levels. Slower. Authoritative. The buck stops here.
+
+Most "memory layers" treat the human as a one-time data labeller. SciPot treats them as an ongoing participant. The Curator workflow has its own API surface (`POST /facts/{id}/curate`, `POST /facts/contribute`), audit trail (`CurationRecord`), and expertise-based scoring. The system gets *better* with human input — not just *trained* on it once.
+
+---
+
+## SciPot vs the alternatives
+
+| | Vector DB (Pinecone, Weaviate) | Memory Layer (Mem0, Zep) | OpenAI Assistants / File Search | **SciPot** |
+|---|---|---|---|---|
+| **Unit of storage** | Text chunk | Conversation memory | File / passage | **Atomic fact** |
+| **Certainty per unit** | Similarity only | None | Similarity only | **POT Score 0.0–1.0** |
+| **Source provenance** | Optional metadata | Conversation ID | File ID | **Fact-level, structured** |
+| **Contradiction detection** | None | None | None | **Typed epistemic edges, flag-only** |
+| **Foundational axioms** | None | None | None | **Constitution (POT Score = 1.0)** |
+| **Knowledge graph** | None | Limited (session-based) | None | **Native (5 edge types)** |
+| **Human curation workflow** | DIY | Limited | DIY | **First-class API** |
+| **Retrieval strategies** | RAG only | RAG + session memory | RAG + file search | **CAG + RAG + GraphRAG + DocumentIndex (Hybrid Router)** |
+| **Deployment** | SaaS or self-hosted | SaaS | Vendor-bundled | **SaaS (Fly.io), self-host planned** |
+| **Best for** | Generic similarity search | Chat-shaped memory | Bundled AI app dev | **Production agent memory with audit + governance** |
+
+> [Full comparison page →](/comparisons/vs-mem0-zep-openai-file-search) — including when *not* to use SciPot.
+
+---
+
+## When SciPot is the wrong tool
+
+We'll say this honestly: SciPot is **not** the right tool for:
+
+- **Stateless single-turn agents** that don't need memory across sessions. Use the foundation model's built-in context window.
+- **Pure semantic search over a static corpus** where you don't care about provenance or certainty. Use Pinecone or Weaviate.
+- **Chat conversation memory only** (i.e., "remember what we discussed earlier in this thread"). Use Mem0 or Zep — they're optimized for that shape.
+- **Quick prototypes where setup time matters more than trust signals.** Use OpenAI File Search.
+
+SciPot is the right tool when:
+
+- You're shipping agents to production where wrong answers have a cost.
+- Your domain has experts whose judgment matters.
+- Your knowledge base has internal contradictions that an LLM cannot resolve without escalation.
+- You need an audit trail of who said what, when, and why.
+- You're betting on agents that get *better* over time, not just *cheaper* to run.
+
+[More on when to use SciPot →](/big-picture/when-to-use-scipot)
+
+---
+
+## What this means in practice
+
+The first time you run a query against a SciPot POT, you'll get a response that looks like this:
+
+```json
+{
+  "answer": "Enterprise pricing is custom, with a floor of $25K ARR. Volume discounts kick in at 1M tokens/month.",
+  "facts_used": [
+    {
+      "id": "01971...",
+      "content": "Enterprise pricing has a floor of $25K ARR.",
+      "pot_score": 0.95,
+      "provenance": {
+        "type": "human_curated",
+        "source": "Pricing decisions memo, 2026-02-14, approved by CFO"
+      }
+    },
+    {
+      "id": "01971...",
+      "content": "Volume discounts begin at 1M tokens/month.",
+      "pot_score": 0.78,
+      "provenance": {
+        "type": "extracted",
+        "source": "Sales playbook v3.2, section 4.1"
+      }
+    }
+  ],
+  "contradictions_found": [],
+  "epistemic_briefing": {
+    "confidence_level": "high",
+    "coverage": "comprehensive",
+    "limitations": [
+      "No information found about discount tiers above 5M tokens/month."
+    ]
+  }
+}
+```
+
+Notice what's there: the answer, the facts that produced it, their scores, where each came from, and an explicit acknowledgment of where coverage is thin.
+
+Notice what's missing: a confident-sounding answer with no audit trail.
+
+That's the difference. That's the bet. That's SciPot.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="When to use SciPot" icon="circle-question" href="/big-picture/when-to-use-scipot">
+    And when not to.
+  </Card>
+  <Card title="POT Score & Provenance" icon="scale-balanced" href="/trust-mechanics/pot-score-and-provenance">
+    The mechanic that makes everything above possible.
+  </Card>
+</CardGroup>

@@ -2,7 +2,7 @@
 
 Developer documentation for **SciPot** — the trust layer between your data and AI Agents.
 
-Published at **[docs.scipot.ai](https://docs.scipot.ai)** (work in progress).
+Published at **[docs.scipot.ai](https://docs.scipot.ai)**.
 
 Hosted on [Mintlify](https://mintlify.com), auto-deployed from this repository.
 
@@ -58,7 +58,6 @@ scipot-docs/
 ├── comparisons/                    # vs Mem0 / Zep / OpenAI File Search
 ├── api-reference/                  # Introduction, Errors, Versioning
 ├── guides/                         # (coming soon — empty dir for now)
-├── cookbook/                       # (coming soon — empty dir for now)
 ├── logo/                           # Brand assets (light/dark/favicon)
 └── images/                         # Diagrams, OG images
 ```

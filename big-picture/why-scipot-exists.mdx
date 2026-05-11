@@ -48,7 +48,7 @@ The fixes the industry has tried — vector stores, RAG pipelines, conversation 
 A vector store returns "chunks similar to your query." A typical RAG pipeline returns "documents that probably mention the topic." OpenAI File Search returns "passages from your uploaded files." None of them tell you:
 
 - **Where did this fact actually come from** (a specific paragraph in a specific document, written by whom, on what date)?
-- **How certain is the system** that this fact is true (0.85 vs 0.42 is a meaningful difference)?
+- **How certain is the system** that this fact is true (`0.85` vs `0.42` is a meaningful difference)?
 - **Does any other fact in the knowledge base contradict it** (and if so, was the contradiction surfaced or silently ignored)?
 - **Who decided this fact belongs in the canon** (an extraction LLM at 2am, or a Human Curator with domain authority)?
 
@@ -75,7 +75,7 @@ A Company Brain doesn't replace your wiki, your CRM, or your data warehouse. It 
 
 ## The four retrieval strategies
 
-SciPot uses a **Hybrid Router** that intelligently composes four retrieval strategies, picking the best one — or combination — for each query:
+SciPot uses a **Hybrid Router** that composes four retrieval strategies, picking the best one — or combination — for each query:
 
 | Strategy | Best for | Latency |
 |---|---|---|
@@ -85,8 +85,6 @@ SciPot uses a **Hybrid Router** that intelligently composes four retrieval strat
 | **DocumentIndex** | Hierarchical document reasoning (coming) | ~1 s |
 
 Each strategy returns facts ranked by a combined score: `combined = (similarity × 0.7) + (pot_score × 0.3)`. The Hybrid Router classifies the incoming query and chooses the optimal strategy automatically — or you can pin a strategy explicitly when you have a preference.
-
-[Read more about retrieval strategies →](/guides/retrieval-strategies)
 
 ---
 
@@ -116,7 +114,7 @@ If they're wrong, you'll know in 18 months because someone will have built a bet
   <Card title="POT Score & Provenance" icon="scale-balanced" href="/trust-mechanics/pot-score-and-provenance">
     Every fact has a score. Every score has a source. Here's how.
   </Card>
-  <Card title="Build your first Company Brain" icon="rocket" href="/guides/build-your-first-company-brain">
-    From zero to a working brain your agents can query, in under 30 minutes.
+  <Card title="Quickstart" icon="rocket" href="/get-started/quickstart">
+    From zero to a working brain your agents can query, in under 5 minutes.
   </Card>
 </CardGroup>

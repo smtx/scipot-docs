@@ -11,6 +11,17 @@ mode: "wide"
 
 Every fact has a score. Every score has a source. Every contradiction is flagged.
 
+<Card title="Fact Receipt" icon="receipt">
+**Enterprise pricing floor is $25K ARR.**
+
+| | |
+|---|---|
+| **POT Score** | `0.95` — VERIFIED |
+| **Source** | `pricing-decisions.md` §3.2 — CFO approved · 2026-02-14 |
+| **Edges** | `◉` supports 2 facts &nbsp;·&nbsp; `◯` no contradictions |
+
+</Card>
+
 <CardGroup cols={3}>
   <Card title="Try in Colab" icon="rocket" href="https://colab.research.google.com/gist/smtx/b0dceb963d3efabfa8fdd9fbf1772729">
     Zero setup — open the notebook, sign up, hit the API. The fastest path from "what is this?" to "I've used it."
@@ -27,7 +38,7 @@ Every fact has a score. Every score has a source. Every contradiction is flagged
 
 ## What is SciPot?
 
-SciPot is **Memory-as-a-Service** for the agentic economy. You feed it documents, conversations, and structured data. It transforms them into **POTs** — Knowledge Pots — where every fact carries a numeric POT Score (Proof of Truth), every score traces to a source, and every contradiction is detected and flagged.
+SciPot is a **trust layer for agent memory**. You feed it documents, conversations, and structured data. It transforms them into **POTs** — Knowledge Pots — where every fact carries a numeric POT Score (Proof of Truth), every score traces to a source, and every contradiction is detected and flagged.
 
 Your AI agents query SciPot and receive answers with **receipts**: cited facts, certainty levels, and an epistemic briefing of what the answer is confident about versus where coverage is thin.
 
@@ -74,8 +85,8 @@ Full breakdown: [SciPot vs Mem0 / Zep / OpenAI File Search →](/comparisons/vs-
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
     Every endpoint, schema, and error code. Auto-generated from OpenAPI.
   </Card>
-  <Card title="Guides" icon="map" href="/guides/build-your-first-company-brain">
-    Build an agent, ingest a domain, curate facts, handle contradictions.
+  <Card title="Comparisons" icon="bullseye-arrow" href="/comparisons/vs-mem0-zep-openai-file-search">
+    Honest tradeoffs vs Mem0, Zep, and OpenAI File Search.
   </Card>
 </CardGroup>
 

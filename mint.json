@@ -59,11 +59,6 @@
       "name": "Colab Playground",
       "icon": "rocket",
       "url": "https://colab.research.google.com/gist/smtx/b0dceb963d3efabfa8fdd9fbf1772729"
-    },
-    {
-      "name": "GitHub",
-      "icon": "github",
-      "url": "https://github.com/smtx/scipot-docs"
     }
   ],
   "navigation": [
@@ -137,8 +132,7 @@
     "raiseIssue": true
   },
   "footerSocials": {
-    "website": "https://scipot.ai",
-    "github": "https://github.com/smtx/scipot-docs"
+    "website": "https://scipot.ai"
   },
   "analytics": {
     "posthog": {

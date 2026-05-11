@@ -12,7 +12,23 @@
 - **What this is:** SciPot — a Memory-as-a-Service API for AI agents. POTs (Knowledge Pots) with explicit certainty scoring (POT Score), typed relationships, contradiction detection, human curation.
 - **Who it's for:** Developers building production AI agents that operate on organizational knowledge. Free self-serve signup; managed-onboarding optional for partners.
 - **Space:** Memory layer for agentic AI. Direct competitors: Mem0, Zep, OpenAI Assistants File Search. Adjacent: vector DBs (Pinecone, Weaviate), enterprise search (Glean).
-- **Surfaces covered:** `docs.scipot.ai` (Mintlify-hosted developer docs) + `scipot.ai` (Cloudflare Pages marketing landing). Same system, different jobs.
+- **Surfaces covered:** `docs.scipot.ai` (Mintlify-hosted developer docs) + `scipot.ai` (the public marketing landing at `scipot.ai/index.html`). Same system, different jobs.
+
+### Out of scope — password-protected surfaces have their own register
+
+The `scipot-landing` repo contains several password-protected pages used to speak to specific non-developer audiences:
+
+| Page | Audience | Register |
+|---|---|---|
+| `/pitch` | Investors (VCs, angels) | Business-pitch tone, market data, traction story |
+| `/tech-pitch` | Investors + technical advisors + hires evaluating depth | Technical-deep-dive, architecture-heavy, "Memory-as-a-Service platform" framing OK here |
+| `/manifesto` | Internal team + close partners | Long-form, narrative, philosophical |
+| `/roadmap` | Investors + partners | Specific milestones, dates, sequencing |
+| `/kb2b` | KB2B-specific partners | Product-context, partnership terms |
+
+**DESIGN.md rules do NOT apply to these pages.** They each speak to a different audience with different expectations. Imposing builder voice + Fact Receipt + slop-blacklist on `/tech-pitch` would actively hurt its investor-pitch purpose. These pages stay as their authors wrote them; only refresh them when the audience-specific needs change.
+
+The dividing line: **if a page is publicly indexable (robots.txt allows it) and password-free, DESIGN.md applies. Otherwise, the page has its own register.**
 
 ## Visual thesis — *"Numbers as the Brand"*
 
@@ -403,10 +419,30 @@ Split applied. Primary Quickstart now 373 lines (down from 445) — the 5-step h
 
 The 180-line target wasn't hit; 373 reflects keeping all three language tabs on every step (cutting JS/Python from primary would degrade first-touch DX more than it'd reduce scroll fatigue). Accepting 373 as the new reality — meaningful improvement (16% shorter) without compromising the language-switcher value.
 
-### 3. MEDIUM — tone unification across surfaces
+### 3. ~~MEDIUM — tone unification across surfaces~~  ✅ INVALIDATED 2026-05-11
 
-- `scipot-landing/tech-pitch/index.html` still uses "Memory-as-a-Service" framing. Update to "trust layer between your data and AI Agents" + builder voice per the canonical lines above.
-- Ensure landing hero's `"Your RAG retrieves. SciPot knows."` register matches docs hero's tone (currently fine, just verify).
+Reverted. `/tech-pitch` is a password-protected investor-facing surface — DESIGN.md voice rules do not apply (see "Out of scope — password-protected surfaces have their own register" above). The "Memory-as-a-Service platform" framing on `/tech-pitch` is **appropriate for its audience** (VCs / technical advisors / hire prospects) and should stay. Public landing hero's `"Your RAG retrieves. SciPot knows."` already matches docs voice — no work needed there.
+
+The premise of this audit fix was wrong: we should not have a single voice across ALL surfaces, only across PUBLIC surfaces.
+
+### 4. ~~MEDIUM — Landing hero missing Fact Receipt~~  ✅ RESOLVED 2026-05-11
+
+The Fact Receipt component (the brand's visual signature per "The Fact Receipt component" section above) is now rendered in the scipot.ai/ hero, centered below the CTAs (max-width 480px). Composition: card surface (`--bg-surface`), 1px subtle border, 6px radius, with the canonical "Enterprise pricing floor is $25K ARR" example — POT Score 0.95 in JetBrains Mono tabular-nums emerald, Source citation in mono secondary, "supports 2 facts · no contradictions" edge row with semantic dots.
+
+Implementation: ~115 lines of CSS + ~15 lines of HTML in `scipot-landing/index.html`. Mobile rules: padding reduced to 1.25rem, score size 1.75rem (down from 2.25rem), grid gap tightened.
+
+Pragmatic deviation from the design mockup: the approved `landing-hero.png` showed a 60/40 asymmetric layout (text left, Receipt right). Implementation kept the existing `text-align: center` hero composition and placed the Receipt centered below CTAs — preserves the proven flow of "headline → CTAs → conversion" while adding the brand signature artifact. If we want to revisit the asymmetric 60/40 composition later, it's a separate edit; this delivers the Fact Receipt's brand value without restructuring the hero.
+
+### Audit summary
+
+| # | Severity | Status |
+|---|---|---|
+| 1 | CRITICAL — 9 broken links to private repo | ✅ Resolved (commit `e775cf6` in scipot-docs) |
+| 2 | HIGH — Quickstart density (445 lines) | ✅ Resolved: split into quickstart (373) + quickstart-advanced (193) (commit `39b7d06`) |
+| 3 | MEDIUM — tech-pitch tone unification | ✅ Invalidated by scope clarification (DESIGN.md applies to public surfaces only) |
+| 4 | MEDIUM — Landing hero missing Fact Receipt | ✅ Resolved (in scipot-landing) |
+
+All four audit findings closed. Design system shipped.
 
 ---
 

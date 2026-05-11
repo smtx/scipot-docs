@@ -128,7 +128,7 @@ Four retrieval surfaces composed by the Hybrid Router.
 | POST | `/pots/{pot_id}/query` | Unified query — Hybrid Router picks CAG / RAG / GraphRAG / a combo. Returns ranked facts + routing metadata. |
 | POST | `/pots/{pot_id}/synthesize` | Retrieve + LLM answer with epistemic briefing + cited facts + contradictions. |
 | POST | `/pots/{pot_id}/search` | Direct RAG semantic search via embeddings. |
-| POST | `/pots/{pot_id}/cag/search` | CAG keyword/entity search (<5 ms). |
+| POST | `/pots/{pot_id}/cag/search` | CAG keyword/entity search (&lt;5 ms). |
 | POST | `/pots/{pot_id}/cag/warm` | Pre-load CAG cache for a POT. |
 | GET | `/pots/{pot_id}/cag/stats` | CAG cache statistics. |
 

@@ -106,7 +106,7 @@ Long-running operations (document ingestion, exhaustive edge detection, bulk ext
 
 Poll [`GET /jobs/{job_id}`](https://api.scipot.ai/docs#/Jobs/get_jobs__job_id_) until `status` is `completed` or `failed`. Jobs include `progress` during processing and a `result` block (or `error` block) at terminal state.
 
-We recommend polling every 1–5 seconds for jobs <1 minute, 5–30 seconds for longer jobs, with exponential backoff. We're working on webhook notifications (milestone **M22**) for production use; until then, polling is the official path.
+We recommend polling every 1–5 seconds for jobs &lt;1 minute, 5–30 seconds for longer jobs, with exponential backoff. We're working on webhook notifications (milestone **M22**) for production use; until then, polling is the official path.
 
 ## Rate limits
 

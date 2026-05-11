@@ -1,0 +1,154 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "SciPot",
+  "colors": {
+    "primary": "#10b981",
+    "light": "#34d399",
+    "dark": "#10b981"
+  },
+  "favicon": "/logo/favicon.png",
+  "navigation": {
+    "anchors": [
+      {
+        "anchor": "Documentation",
+        "icon": "book-open",
+        "groups": [
+          {
+            "group": "Welcome",
+            "pages": [
+              "welcome"
+            ]
+          },
+          {
+            "group": "Big Picture",
+            "pages": [
+              "big-picture/why-scipot-exists",
+              "big-picture/how-scipot-is-different",
+              "big-picture/when-to-use-scipot"
+            ]
+          },
+          {
+            "group": "Get Started",
+            "pages": [
+              "get-started/quickstart",
+              "get-started/quickstart-advanced",
+              "get-started/authentication"
+            ]
+          },
+          {
+            "group": "Trust Mechanics",
+            "pages": [
+              "trust-mechanics/pot-score-and-provenance",
+              "trust-mechanics/constitution",
+              "trust-mechanics/curators",
+              "trust-mechanics/contradiction-detection"
+            ]
+          },
+          {
+            "group": "Comparisons",
+            "pages": [
+              "comparisons/vs-mem0-zep-openai-file-search"
+            ]
+          },
+          {
+            "group": "Release notes",
+            "pages": [
+              "changelog"
+            ]
+          }
+        ]
+      },
+      {
+        "anchor": "API Reference",
+        "icon": "code",
+        "groups": [
+          {
+            "group": "API Reference",
+            "pages": [
+              "api-reference/introduction",
+              "api-reference/api-surface",
+              "api-reference/errors",
+              "api-reference/versioning"
+            ]
+          }
+        ]
+      },
+      {
+        "anchor": "Colab Playground",
+        "icon": "rocket",
+        "href": "https://colab.research.google.com/gist/smtx/b0dceb963d3efabfa8fdd9fbf1772729"
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.png",
+    "dark": "/logo/dark.png",
+    "href": "https://scipot.ai"
+  },
+  "api": {
+    "openapi": "https://api.scipot.ai/openapi.json",
+    "playground": {
+      "display": "interactive"
+    },
+    "mdx": {
+      "server": "https://api.scipot.ai",
+      "auth": {
+        "method": "key",
+        "name": "X-API-Key"
+      }
+    }
+  },
+  "appearance": {
+    "default": "dark",
+    "strict": false
+  },
+  "background": {
+    "color": {
+      "light": "#fafaf9",
+      "dark": "#0a0a0b"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "scipot.ai",
+        "href": "https://scipot.ai"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get a free API key",
+      "href": "/get-started/authentication"
+    }
+  },
+  "seo": {
+    "metatags": {
+      "title": "SciPot — The trust layer between your data and AI Agents",
+      "description": "Build Company Brains your AI Agents can trust. Every fact has a score. Every score has a source. Every contradiction is flagged.",
+      "og:image": "/images/og-default.png"
+    },
+    "indexing": "navigable"
+  },
+  "footer": {
+    "socials": {
+      "website": "https://scipot.ai"
+    }
+  },
+  "integrations": {
+    "posthog": {
+      "apiKey": "phc_uRUshwsSPHLH9rVj2YFpWbzB39q4vairAAQsD8TNdgJd",
+      "apiHost": "https://us.i.posthog.com"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Cormorant Garamond",
+      "weight": 500
+    },
+    "body": {
+      "family": "DM Sans",
+      "weight": 400
+    }
+  }
+}

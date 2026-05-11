@@ -7,5 +7,5 @@ node_modules/
 .env
 .env.local
 
-# Mintlify dev compiles a runtime config — local artifact, not source of truth.
-docs.json
+# (docs.json IS the canonical Mintlify config and lives in git.
+#  Removed from gitignore on 2026-05-11 after Mintlify migrated from mint.json.)

@@ -37,6 +37,12 @@
             ]
           },
           {
+            "group": "Guides",
+            "pages": [
+              "guides/writing-a-constitution"
+            ]
+          },
+          {
             "group": "Trust Mechanics",
             "pages": [
               "trust-mechanics/pot-score-and-provenance",
@@ -135,10 +141,13 @@
       "website": "https://scipot.ai"
     }
   },
+  "contextual": {
+    "options": ["copy", "view", "claude", "chatgpt", "cursor", "mcp"]
+  },
   "integrations": {
     "posthog": {
       "apiKey": "phc_uRUshwsSPHLH9rVj2YFpWbzB39q4vairAAQsD8TNdgJd",
-      "apiHost": "https://us.i.posthog.com"
+      "apiHost": "https://eu.i.posthog.com"
     }
   },
   "fonts": {

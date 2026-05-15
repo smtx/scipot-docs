@@ -1,0 +1,160 @@
+---
+title: "How to write a Constitution for your Company Brain"
+sidebarTitle: "Writing a Constitution"
+description: "The 3-7 axioms that define what your POT believes are the highest-stakes piece you'll write. Most teams get it wrong on the first try. Here's the pattern that works — six failure modes, two tests, and a worked example."
+---
+
+A Constitution is the foundation of every SciPot POT — 3 to 7 axioms at POT Score 1.0 that define what's true by assertion in your domain. Get it right and the whole knowledge graph composes correctly on top of it. Get it wrong and you have a Company Brain that flags real contradictions as noise, lets stale facts override new ones, or quietly answers questions outside its scope.
+
+Most teams get it wrong on the first try. Not because the concept is hard, but because the temptation is to write the version that sounds good in a values deck instead of the version that constrains decisions.
+
+This guide is the pattern we've seen work — six failure modes to dodge, two falsifiability tests, and a worked example that takes 12 candidate statements down to 6.
+
+## The shape of a good Constitution
+
+Three properties, all required:
+
+**Falsifiable.** Each axiom states something that could in principle be wrong. "We optimize for correctness over cleverness" is falsifiable — you could observe a decision that violated it. "We care about quality" is not — no observable behavior could contradict it.
+
+**Specific to your domain.** Constitutional axioms are what makes YOUR Company Brain different from a generic knowledge base. "Production incidents are post-mortemed within 5 business days" is yours. "Best practices matter" is filler.
+
+**Scope-defining.** Half the value is what the POT *doesn't* cover. An explicit `scope_exclusion` ("This POT does not cover sales or HR matters") tells the synthesizer when to defer instead of inventing.
+
+Anything that doesn't pass all three should live as a VERIFIED fact below the Constitution, not as an axiom. The [Constitution reference](/trust-mechanics/constitution) covers the full API surface; this guide is about what to actually put in it.
+
+## Six failure modes we see every week
+
+**1. The mission statement Constitution.** "We are dedicated to engineering excellence." Reads well, constrains nothing. Every decision is consistent with it. Delete.
+
+**2. The 30-axiom manifesto.** When everything is foundational, nothing is. The Constitution is the part you'd defend in a meeting against someone who thinks the opposite — 30 of those don't exist in any real organization. Cut to 7 maximum.
+
+**3. The implicit scope.** Says what the POT covers but never what it doesn't. The system has no way to know when to say "this is out of scope" — so it tries to answer anyway, badly. Always include at least one `scope_exclusion`.
+
+**4. The wishful Constitution.** Describes the company you wish you were, not the one you are. The first month of operation produces an avalanche of `CONTRADICTS` flags because every real document violates the aspiration. You either fix the company or fix the Constitution. Fixing the Constitution is faster.
+
+**5. The borrowed Constitution.** Copied from another team's playbook. Sounds reasonable but nobody on your team would defend any specific clause. The Constitution becomes invisible — neither the humans nor the system reference it, because it has no teeth.
+
+**6. The orphan Constitution.** No named Human Curator owns it. When the market changes and an axiom needs amending, nobody knows whose call that is. The Constitution drifts out of date and the system trusts a fiction.
+
+## The two tests every axiom must pass
+
+Apply both to each candidate axiom. Both must return true.
+
+**Test 1 — the defense test.** Could you defend this axiom in a meeting against a smart person who believes the opposite? If everyone in the room would nod and forget, the axiom isn't load-bearing. Cut it.
+
+**Test 2 — the absence test.** What behavior would the system silently allow if this axiom didn't exist? If the answer is "nothing would change," the axiom isn't doing work. Cut it.
+
+A Constitution that survives both tests is small. That's correct.
+
+## Worked example — an Engineering Brain for Acme Corp
+
+Here's the actual process. We start with a brain dump of 12 candidate statements gathered from the CTO and two senior engineers. We end with 6.
+
+### The 12 candidates
+
+1. We value engineering excellence.
+2. Acme is a B2B SaaS company. Decisions are evaluated by their impact on enterprise customers first.
+3. We optimize for correctness over cleverness. A 10-line obvious fix beats a 200-line abstraction.
+4. We care deeply about our customers.
+5. Production incidents are post-mortemed within 5 business days. Post-mortems are blameless and outcome-focused.
+6. We do not use customer data for model training. Ever.
+7. We hire the best engineers we can find.
+8. Architecture decisions are documented as ADRs. ADRs supersede Slack threads.
+9. This POT does not cover sales playbooks, customer financials, or HR matters.
+10. We ship fast and iterate.
+11. Quality is everyone's responsibility.
+12. We are committed to engineering rigor.
+
+### Pass 1 — the defense test
+
+Candidates 1, 4, 7, 10, 11, 12 fail. Every engineering team in the world nods at "we value excellence" / "we care about customers" / "we hire the best" / "quality is everyone's responsibility." None constrains a single decision. They're values-deck filler.
+
+**6 survive:** 2, 3, 5, 6, 8, 9.
+
+### Pass 2 — the absence test
+
+For each remaining candidate, ask what the system would silently allow without it:
+
+| Candidate | What breaks without it | Keep? |
+|---|---|---|
+| 2 — B2B SaaS, enterprise first | No anchor for prioritization when a fact applies to multiple customer segments | ✅ |
+| 3 — correctness over cleverness | Can't surface contradictions between "elegant" abstractions and "boring" working code | ✅ |
+| 5 — post-mortems in 5 days, blameless | Every "we should post-mortem this someday" fact looks valid; blameless framing is also doing work | ✅ |
+| 6 — no customer data for model training | Any document mentioning training is ambiguous about whether it applies; this is a hard policy with `critical` contradiction priority | ✅ |
+| 8 — ADRs supersede Slack | A recent Slack message contradicting an old ADR gets equal score weight; this axiom encodes a precedence rule | ✅ |
+| 9 — scope exclusion | Sales-related questions get answered with engineering facts | ✅ |
+
+All six pass. Under the 7-axiom ceiling, all load-bearing. Done.
+
+### The final POT
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/from-json" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Acme Corp — Engineering Brain",
+    "slug": "acme-eng",
+    "description": "Canonical engineering knowledge for the Acme team.",
+    "domain": "software-engineering",
+    "constitution": [
+      "Acme is a B2B SaaS company. Decisions are evaluated by their impact on enterprise customers first.",
+      "We optimize for correctness over cleverness. A 10-line obvious fix beats a 200-line abstraction.",
+      "Production incidents are post-mortemed within 5 business days. Post-mortems are blameless and outcome-focused.",
+      "We do not use customer data for model training. Ever.",
+      "Architecture decisions are documented as ADRs. ADRs supersede Slack threads.",
+      "This POT does not cover sales playbooks, customer financials, or HR matters."
+    ]
+  }'
+```
+
+Each statement is something a senior engineer at Acme would defend, would constrain real decisions, and would surface contradictions if a document violated it.
+
+<Note>
+The 6 we kept share a trait: each implies a clear behavior the system should produce. Axiom 8 means a Slack-sourced fact should never outrank an ADR-sourced one at the same score. Axiom 9 means questions about commission structures get a "this POT doesn't cover that" response, not a hallucinated answer. The 6 we cut implied no behavior. That's the test.
+</Note>
+
+## When (and when not) to amend after launch
+
+A healthy Constitution evolves, but slowly. Typical amendment cadence:
+
+| Period | Typical amendments | Why |
+|---|---|---|
+| First 3 months | 0-2 | Discovering gaps the original draft missed |
+| Months 4-12 | 0-1 per quarter | Market or org shifts |
+| Year 2+ | ~1 per year | Real strategic pivots only |
+
+If you're amending the Constitution monthly, the axioms aren't load-bearing — they're descriptions of current state, not principles. Push them down to VERIFIED facts and rewrite the Constitution as the part that stays still.
+
+When you do amend, use the [governance API](/trust-mechanics/constitution#constitutional-governance-api). The prior version stays in the audit trail (`superseded_by` edge), derived facts re-score, and the `CurationRecord` captures the rationale.
+
+## What happens when you get an axiom wrong
+
+You will. The amendment API exists because SciPot assumes it.
+
+Two recoverable failures:
+
+**Wrong axiom.** An axiom you wrote in month 1 turns out to be wrong — a market changed, a premise was naive. Amend it. Facts that `derived_from` the old axiom re-score against the new one. Contradictions get re-evaluated.
+
+**Missing axiom.** Six months in you discover the system keeps making mistakes because there's no axiom telling it what to anchor on. Add it via `POST /pots/{pot_id}/constitution`. The amendment cascades through propagation.
+
+The unrecoverable failure is **not having a Constitution at all**. At that point you have a vector store with extra steps, not a Company Brain.
+
+## The Constitution is the moat, not the data
+
+Anyone can pour your documents into any retrieval system. The documents aren't differentiated.
+
+What's differentiated is the wager you've made about what's true in your domain — which axioms anchor it, which scope exclusions bound it, which contradictions get critical priority. That's the Constitution. That's the part SciPot lets you make explicit, versioned, and audit-trailed.
+
+A Company Brain without a Constitution is a search box. A Company Brain with a 30-axiom manifesto is theater. A Company Brain with 3-7 falsifiable, scope-defining, defendable axioms is a system that knows what it knows.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Constitution reference" icon="landmark" href="/trust-mechanics/constitution">
+    Full API surface, properties, edge interactions.
+  </Card>
+  <Card title="Spin up your first POT" icon="rocket" href="/get-started/quickstart">
+    Adapt the Acme 6-axiom example to your team in 5 minutes.
+  </Card>
+</CardGroup>

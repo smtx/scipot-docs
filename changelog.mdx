@@ -18,6 +18,28 @@ _Changes in flight on `main` but not yet tagged._
 
 ---
 
+## 0.3.0 — 2026-05-24
+
+**M21 — Context Attachments.** Curators can pin typed, non-extractable guidance to a document — an `author_note` (free-text framing) or a `json_schema` (reference for negative-space facts) — that travels into every extraction call against that document. The extraction LLM uses the attachment to interpret the primary document but never produces facts attributable solely to the attachment. Every fact created under an M21+ extraction carries a `context_attachment_ids_used` snapshot for full provenance.
+
+### Added
+
+- **`POST /documents/{document_id}/context-attachments`** — create an inline attachment (JSON body, ≤ 16 KB UTF-8).
+- **`POST /documents/{document_id}/context-attachments/upload`** — create from a multipart file upload (≤ 80 KB UTF-8). Returns `413 ATTACHMENT_FILE_TOO_LARGE` on overflow.
+- **`GET /documents/{document_id}/context-attachments`** — list attachments for a document, ordered by `created_at`.
+- **`DELETE /documents/{document_id}/context-attachments/{attachment_id}`** — delete attachment + storage blob. Past facts keep the id on `context_attachment_ids_used`.
+- **`context_attachment_ids` parameter on `POST /pots/{pot_id}/extract-from-document`** — `null` (default) resolves to all attachments on the document; `[]` runs extraction with zero attachments; `[...]` runs against a validated subset.
+- **`context_attachment_ids_used` field on `Fact`** — three semantic states: a snapshot list for M21+ extractions, `[]` for M21+ extractions with no attachments, `null` for legacy facts.
+- **Hard caps:** 5 attachments per document, 80 KB resolved-set bytes, 25 000 tokens in the assembled prompt section.
+- **Error vocabulary:** `ATTACHMENT_CAP_EXCEEDED`, `ATTACHMENT_FILE_TOO_LARGE`, `ATTACHMENT_NOT_UTF8`, `ATTACHMENT_TYPE_INVALID`, `ATTACHMENT_REF_INVALID`, `ATTACHMENT_EMPTY` (sync, on create/extract). Worker-side: `ATTACHMENT_FETCH_FAILED`, `ATTACHMENT_DECODE_FAILED`, `ATTACHMENT_CAP_EXCEEDED_AT_EXTRACT`.
+
+### Documentation
+
+- **New:** [Context Attachments](/trust-mechanics/context-attachments) (concept, iron rule, snapshot semantics).
+- **New:** [Extraction with Context Attachments](/guides/extraction-with-context-attachments) (curl + JS + Python walkthrough).
+
+---
+
 ## 0.2.0 — 2026-05-11
 
 First version with deliberate version tracking. Includes the public-API preparation work for the [docs.scipot.ai](https://docs.scipot.ai) launch: route cleanup, structured error envelope rail, OpenAPI enrichment.

@@ -1,0 +1,158 @@
+---
+title: "Context Attachments"
+sidebarTitle: "Context Attachments"
+description: "Curator-written guidance that travels with a document into the extraction call to shape the LLM's interpretation — without ever being attributed as a fact. Five attachments per document, hard-capped at 80 KB total."
+---
+
+A Context Attachment is a typed, non-extractable payload pinned to a document. It rides along into every extraction call against that document and shapes how the LLM reads the source — what scope to apply, what framing to assume, what schema the document is supposed to conform to. The extraction model receives the attachments under explicit instruction: **use these to interpret; do not produce facts attributable solely to them.**
+
+If the document is what you stored, the attachments are how you tell the system to read it.
+
+## Two types in v1
+
+Pick the type that fits the document at hand — most documents need either zero attachments, an `author_note`, or a `json_schema`. Mixing types on a single document is allowed (the cap is 5 attachments total, of any type), but uncommon in practice.
+
+### `author_note` — free-text curator guidance
+
+A short prose note that tells the extraction model how to read the document: scope, ownership, terminology, intent. Payload is plain UTF-8 text (`mime_type: text/plain`).
+
+```text
+This whitepaper is vendor marketing material from Acme Corp.
+Treat claims about competitors as marketing assertions, not as
+verified facts. Treat the architecture diagrams on pages 4-6 as
+illustrative — they describe the vendor's reference design, not
+our deployment.
+```
+
+Use when the document is unambiguous in form (a PDF, a memo, a transcript) but its **framing** would mislead a literal extraction.
+
+### `json_schema` — structured schema reference
+
+A JSON Schema document (or any schema-shaped JSON) that lets the model perform **negative-space extraction** — facts about what the primary document *does not* contain relative to what the schema *defines*. Payload is JSON (`mime_type: application/schema+json` or `application/json`).
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/tenant-config.schema.json",
+  "title": "Eightfold tenant configuration",
+  "type": "object",
+  "properties": {
+    "role_mappings": {
+      "type": "object",
+      "description": "Map of internal roles to Eightfold roles",
+      "properties": {
+        "admin": { "type": "array", "items": { "type": "string" } },
+        "recruiter": { "type": "array", "items": { "type": "string" } },
+        "hiring_manager": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "integrations": {
+      "type": "object",
+      "properties": {
+        "workday": { "type": "object" },
+        "greenhouse": { "type": "object" },
+        "lever": { "type": "object" }
+      }
+    }
+  }
+}
+```
+
+With this schema attached, the extraction model can produce facts like _"the tenant configures 2 of 3 supported integrations (workday, greenhouse)"_ — a claim that's only knowable by **comparing the primary document to the schema**. Without the schema, the extractor sees the two integrations the document mentions and has no way to know two more were available.
+
+### How the type matters at extraction time
+
+`scipot-core` does not interpret the payload by type — both kinds are opaque typed strings to the storage layer. What changes is the **per-type directive** the extraction pipeline injects ahead of the attachment in the prompt:
+
+- For `author_note`: *"Use to resolve scope, ownership, terminology. Do NOT extract."*
+- For `json_schema`: *"Use to compare config keys present vs schema keys possible. Extract absence/minimalism only when meaningful. Never extract schema field definitions."*
+
+That directive is what makes negative-space facts safe for `json_schema` and forbidden for `author_note`.
+
+## What facts get back
+
+Every fact produced under an M21+ extraction carries a `context_attachment_ids_used` field. Three semantic states:
+
+| Value | Meaning |
+|---|---|
+| `["att_01H...", "att_01J..."]` | Snapshot of the resolved attachment set in scope at this extraction. |
+| `[]` | Extraction ran under M21+ with **zero** attachments — distinguishable from "no attachments wired up". |
+| `null` | Legacy fact (pre-M21) or fact created outside the extraction pipeline (manual create, synthesis). |
+
+Snapshot semantics: if you delete an attachment after extraction, the id stays on the fact. Integrators render this as a "deleted after extraction" badge so curators see the historical trace.
+
+## Hard caps
+
+The caps are tight on purpose — context attachments are interpretation anchors, not a back-door for stuffing the prompt.
+
+| Limit | Value | Where it fails |
+|---|---|---|
+| Attachments per document | `5` | `422 ATTACHMENT_CAP_EXCEEDED` on create |
+| Inline payload (JSON body) | `16 KB` UTF-8 | `422` Pydantic validation on create |
+| File payload (multipart) | `80 KB` UTF-8 | `413 ATTACHMENT_FILE_TOO_LARGE` on upload |
+| Resolved set at extract | `80 KB` total + `25 000` tokens | Job fails with `ATTACHMENT_CAP_EXCEEDED_AT_EXTRACT` |
+
+The resolved-set cap mirrors the per-file cap on purpose: v1 supports either one large attachment or several small ones, not both maxed out. Anthropic-side token counts include a 1.15× safety factor over `cl100k_base` so the assembled prompt section never overshoots the model's actual budget.
+
+## The iron rule
+
+The extraction LLM receives every resolved attachment under one explicit instruction:
+
+> *Use these materials ONLY to interpret the primary document. Do NOT generate facts that are attributable solely to these attachments.*
+
+A fact whose evidence is entirely the attachment is a prompt-injection vector — somebody upload a "Vendor X supports Y" note and watch it become a fact about Vendor X. The extraction prompt rejects that pattern by construction. Facts must trace back to the primary document; attachments only resolve ambiguity in how the primary is read.
+
+The one exception: **negative-space facts** under a `json_schema` attachment. A fact of the form "this config uses 2 of 47 possible options" is *about the primary document's relationship to the schema*, not about the schema itself. Facts of the form "Schema X defines Y options" are still rejected — that's schema-content, not customer-content.
+
+## Lifecycle inside a single extraction
+
+When you call `POST /pots/{pot_id}/extract-from-document` with `context_attachment_ids`:
+
+1. **Resolve.** `null` → list every attachment on the document with `ConsistentRead`. `[]` → empty resolved set. `[...]` → validated subset; ids must belong to this document in this workspace.
+2. **Sort.** By `created_at` then `attachment_id`, so the prompt section is byte-identical regardless of caller input order.
+3. **Cap-check (bytes).** Sum byte sizes, fail fast if over 80 KB.
+4. **Fetch.** Inline payloads return immediately; S3 blobs download in parallel via `asyncio.gather`, decoded UTF-8.
+5. **Assemble.** Build the prompt section with per-type directives.
+6. **Cap-check (tokens).** Count tokens on the assembled section, fail fast if over 25 000.
+7. **Extract.** LLM receives the context section *before* the primary document. Every resulting fact gets `context_attachment_ids_used = <resolved set ids>`.
+
+Failed jobs are terminal — a user-initiated retry re-resolves from the current DynamoDB / S3 state, so a just-deleted attachment surfaces as `ATTACHMENT_REF_INVALID` on the retry rather than re-running with stale data.
+
+## Why this is separate from facts
+
+The temptation, when adding extraction guidance, is to push it as facts: "this fact tells the system the document is internal scope." That's wrong on three fronts.
+
+**Provenance pollution.** A "this is internal" fact would appear in retrieval results, would propagate score, would generate edges. It's not knowledge about the domain — it's metadata about how to read one document.
+
+**Prompt-injection surface.** If guidance lives as facts, an attacker who can write facts can inject extraction instructions. Attachments are scoped to the document and the curator's write permission.
+
+**Audit trail.** Attachments carry their own lifecycle (`created_at`, `byte_size`, `mime_type`) and snapshot semantics. A fact-as-guidance has none of that.
+
+The cost of separation is one new primitive. The benefit is that the fact graph stays a clean record of what the domain knows, and the extraction context stays a clean record of how the curator told the system to read each document.
+
+## Querying for facts produced under context
+
+Filter `GET /pots/{pot_id}/facts` by extraction provenance to see what was extracted under which context. The field on each fact is exposed in `GET /pots/{pot_id}/facts/{fact_id}` and on `with-edges`:
+
+```json
+{
+  "fact_id": "01H...",
+  "content": "Tenant uses 2 of 47 configurable role mappings.",
+  "pot_score": 0.78,
+  "level": "SUPPORTED",
+  "context_attachment_ids_used": ["01H...", "01J..."]
+}
+```
+
+When you list a document's attachments via `GET /documents/{document_id}/context-attachments`, you get the live set. Cross-reference: an id that's on a fact but not in the live list is one you deleted after extraction.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Extraction with Context Attachments" icon="paperclip" href="/guides/extraction-with-context-attachments">
+    The end-to-end how-to: create attachments, run extraction, inspect what came back.
+  </Card>
+  <Card title="POT Score & Provenance" icon="scale-balanced" href="/trust-mechanics/pot-score-and-provenance">
+    How extraction provenance composes with scoring and source tracking.
+  </Card>
+</CardGroup>

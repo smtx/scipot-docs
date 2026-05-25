@@ -1,0 +1,232 @@
+---
+title: "Extraction with Context Attachments"
+sidebarTitle: "Extraction with Context Attachments"
+description: "End-to-end: upload a document, pin curator guidance to it, run extraction with explicit scope, and trace which attachments shaped each fact. Five attachments per document, hard-capped at 80 KB."
+---
+
+This guide walks through the full curator workflow: storing a document, pinning curator guidance to it (an `author_note` for a prose-heavy document, a `json_schema` for a structured one), running extraction with explicit scope, and inspecting the resulting facts to confirm provenance.
+
+For the conceptual model — the iron rule, the snapshot semantics, the cap math — read [Context Attachments](/trust-mechanics/context-attachments) first.
+
+## Prerequisites
+
+You have an active `ik_live_` key, a workspace, and at least one POT with a Constitution. If not, see the [Quickstart](/get-started/quickstart).
+
+```bash
+export SCIPOT_URL="https://api.scipot.ai"
+export SCIPOT_KEY="ik_live_..."
+export WORKSPACE_ID="01H..."
+export POT_ID="01H..."
+```
+
+## Step 1 — Store the document
+
+Upload via the file endpoint (auto-converted to Markdown) or push raw text via `/pots/{pot_id}/ingest`. Either way, we want the `document_id` for the next step. The file endpoint returns it directly:
+
+```bash
+curl -X POST "$SCIPOT_URL/documents/upload" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -F "file=@./tenant-config-export.json" \
+  -F "tags=onboarding,eightfold"
+```
+
+Response includes `document_id`:
+
+```json
+{
+  "document": {
+    "id": "01H...DOC",
+    "filename": "tenant-config-export.json",
+    "type": "json",
+    "size_bytes": 3814,
+    "created_at": "2026-05-25T10:14:00Z"
+  }
+}
+```
+
+```bash
+export DOCUMENT_ID="01H...DOC"
+```
+
+## Step 2 — Pin one attachment to the document
+
+Pick the type that fits the document. Most workflows attach **one** of the two — use both only when you genuinely need both kinds of framing on the same document.
+
+<Tabs>
+  <Tab title="author_note (inline)">
+    Use for prose-shaped guidance: scope, framing, ownership, intent. Inline path takes a JSON body, capped at 16 KB UTF-8.
+
+    ```bash
+    curl -X POST "$SCIPOT_URL/documents/$DOCUMENT_ID/context-attachments" \
+      -H "X-API-Key: $SCIPOT_KEY" \
+      -H "X-Workspace-ID: $WORKSPACE_ID" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "type": "author_note",
+        "name": "Scope: third-party export",
+        "content_text": "This file is an export from a third-party HR vendor (Eightfold). It describes the tenant configuration only — anything that looks like vendor branding (logos, product names, feature lists) is the schema, not the tenant. Treat scope as own; do not extract facts about the vendor itself."
+      }'
+    ```
+
+    Response (`201`):
+
+    ```json
+    {
+      "attachment_id": "01H...NOTE",
+      "document_id": "01H...DOC",
+      "type": "author_note",
+      "name": "Scope: third-party export",
+      "content_text": "This file is an export from a third-party HR vendor (Eightfold)…",
+      "mime_type": "text/plain",
+      "byte_size": 287,
+      "created_at": "2026-05-25T10:15:02Z"
+    }
+    ```
+
+    ```bash
+    export ATTACHMENT_ID="01H...NOTE"
+    ```
+  </Tab>
+  <Tab title="json_schema (multipart)">
+    Use for structured guidance that enables **negative-space facts** (claims about what the primary document doesn't contain, relative to what the schema defines). A real schema usually doesn't fit inline, so use the multipart upload path; the file must be UTF-8 and ≤ 80 KB.
+
+    ```bash
+    curl -X POST "$SCIPOT_URL/documents/$DOCUMENT_ID/context-attachments/upload" \
+      -H "X-API-Key: $SCIPOT_KEY" \
+      -H "X-Workspace-ID: $WORKSPACE_ID" \
+      -F "type=json_schema" \
+      -F "name=Eightfold tenant schema v3" \
+      -F "mime_type=application/schema+json" \
+      -F "file=@./eightfold-tenant.schema.json"
+    ```
+
+    The file you upload is JSON Schema (or any schema-shaped JSON), e.g.:
+
+    ```json
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://example.com/tenant-config.schema.json",
+      "title": "Eightfold tenant configuration",
+      "type": "object",
+      "properties": {
+        "role_mappings": { "type": "object" },
+        "integrations":  { "type": "object" },
+        "sso":           { "type": "object" }
+      }
+    }
+    ```
+
+    Response shape matches the inline case, except `content_text` is `null` and `s3_key` is populated — the resolver fetches the blob at extraction time.
+
+    ```bash
+    export ATTACHMENT_ID="01H...SCHEMA"
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+**Inline vs multipart is about payload size, not type.** An `author_note` longer than 16 KB also uses the multipart `/upload` path; a `json_schema` shorter than 16 KB can be inlined as a JSON string. The two channels just exist because a 50 KB schema can't fit in a JSON body. Same endpoint base, same response shape.
+</Note>
+
+## Step 3 — Run extraction with explicit scope
+
+The extraction call takes a `context_attachment_ids` field. Three valid forms:
+
+| Value | Meaning |
+|---|---|
+| `null` *(or field omitted)* | Resolve to **all** attachments currently on the document. |
+| `[]` | Run extraction with **zero** attachments — explicit ignore. |
+| `["att_01...", ...]` | Validated subset. Every id must belong to this document in this workspace. |
+
+```bash
+curl -X POST "$SCIPOT_URL/pots/$POT_ID/extract-from-document" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"document_id\": \"$DOCUMENT_ID\",
+    \"context_attachment_ids\": [\"$ATTACHMENT_ID\"]
+  }"
+```
+
+Response is the standard async `job_id`. Poll `GET /jobs/{job_id}` until `status: completed`.
+
+<Note>
+**Omitting the field vs sending `null` vs sending `[]`.** Omitting and sending `null` are equivalent — both resolve to "all attachments on the document". Sending `[]` is the only way to extract *without* attachments while attachments exist on the document. Integrators that always want explicit scope should always send the array, never omit.
+</Note>
+
+## Step 4 — Inspect provenance on resulting facts
+
+When the job completes, every fact created during that extraction carries `context_attachment_ids_used` with the resolved set. Fetch one:
+
+```bash
+curl "$SCIPOT_URL/pots/$POT_ID/facts/$FACT_ID" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID"
+```
+
+```json
+{
+  "fact_id": "01H...FACT",
+  "content": "Tenant uses 2 of 47 configurable role-mapping options defined by the schema.",
+  "pot_score": 0.74,
+  "level": "SUPPORTED",
+  "context_attachment_ids_used": ["01H...NOTE"],
+  "provenance": {
+    "type": "extracted",
+    "sources": [{ "id": "01H...DOC", "type": "json", "reference": "tenant-config-export.json" }]
+  }
+}
+```
+
+The `["01H...NOTE"]` snapshot is permanent on this fact — even if you later delete the attachment, the id stays. That's the design: a fact's extraction-time context is part of its audit trail. When several attachments are in scope, the array carries all of their ids in stable `created_at` order.
+
+## Failure modes
+
+Each `4xx` carries a structured error envelope (see [Errors](/api-reference/errors)). The attachment-specific codes:
+
+| HTTP | `code` | When |
+|---|---|---|
+| `404` | `DOCUMENT_NOT_FOUND` | Document isn't in this workspace. |
+| `404` | `ATTACHMENT_NOT_FOUND` | DELETE or GET on a non-existent attachment_id. |
+| `413` | `ATTACHMENT_FILE_TOO_LARGE` | Multipart payload exceeds 80 KB. |
+| `422` | `ATTACHMENT_CAP_EXCEEDED` | 6th attachment on a document (cap is 5). |
+| `422` | `ATTACHMENT_NOT_UTF8` | Multipart file isn't valid UTF-8. |
+| `422` | `ATTACHMENT_TYPE_INVALID` | `type` is not `author_note` or `json_schema`. |
+| `422` | `ATTACHMENT_REF_INVALID` | An id in `context_attachment_ids` doesn't belong to the document/workspace. |
+| `422` | `ATTACHMENT_EMPTY` | Empty payload (inline or multipart). |
+
+Worker-side errors land on the job as `error.code`:
+
+| `job.error.code` | When |
+|---|---|
+| `ATTACHMENT_FETCH_FAILED` | S3 blob couldn't be downloaded mid-extraction. |
+| `ATTACHMENT_DECODE_FAILED` | Stored blob isn't valid UTF-8 (rare — create-time check usually catches it). |
+| `ATTACHMENT_CAP_EXCEEDED_AT_EXTRACT` | Resolved set exceeds 80 KB or 25 000 tokens at job-time. |
+
+Failed jobs are terminal. A user-initiated retry re-resolves from current state — useful when the failure was a transient S3 issue.
+
+## Cleanup
+
+Delete an attachment when you no longer want it influencing future extractions on this document:
+
+```bash
+curl -X DELETE \
+  "$SCIPOT_URL/documents/$DOCUMENT_ID/context-attachments/$ATTACHMENT_ID" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID"
+```
+
+Past facts already extracted under that attachment keep the id on `context_attachment_ids_used`. Fresh extractions on the document stop including it.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Context Attachments concept" icon="circle-info" href="/trust-mechanics/context-attachments">
+    The iron rule, snapshot semantics, why this is separate from facts.
+  </Card>
+  <Card title="API Surface" icon="map" href="/api-reference/api-surface#context-attachments">
+    Full endpoint map. Click into the auto-imported per-endpoint pages for schemas.
+  </Card>
+</CardGroup>

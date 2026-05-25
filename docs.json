@@ -39,7 +39,8 @@
           {
             "group": "Guides",
             "pages": [
-              "guides/writing-a-constitution"
+              "guides/writing-a-constitution",
+              "guides/extraction-with-context-attachments"
             ]
           },
           {
@@ -48,7 +49,8 @@
               "trust-mechanics/pot-score-and-provenance",
               "trust-mechanics/constitution",
               "trust-mechanics/curators",
-              "trust-mechanics/contradiction-detection"
+              "trust-mechanics/contradiction-detection",
+              "trust-mechanics/context-attachments"
             ]
           },
           {

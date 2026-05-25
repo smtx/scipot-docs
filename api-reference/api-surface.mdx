@@ -47,7 +47,7 @@ Atomic claims with POT Score + provenance. Most retrieval lands here.
 | Method | Path | What it does |
 |---|---|---|
 | GET | `/pots/{pot_id}/facts` | List facts with filters (score, domain, tags, status, document, sort, paginate). |
-| GET | `/pots/{pot_id}/facts/{fact_id}` | Get a single fact with full provenance. |
+| GET | `/pots/{pot_id}/facts/{fact_id}` | Get a single fact with full provenance. Includes `context_attachment_ids_used` snapshot for M21+ facts. |
 | GET | `/pots/{pot_id}/facts/{fact_id}/with-edges` | Get a fact plus its incoming/outgoing edges. |
 | DELETE | `/pots/{pot_id}/facts/{fact_id}` | Delete a fact (cascades connected edges). |
 
@@ -63,13 +63,28 @@ Two ingestion modes: inline text (JSON body) and file upload (multipart, with au
 |---|---|---|
 | POST | `/pots/{pot_id}/ingest` | Ingest raw text into a POT. Async, returns `job_id`. 100 KB inline cap. |
 | POST | `/documents/upload` | Upload a file (PDF, DOCX, PPTX, XLSX, HTML, MD, TXT) — auto-converted to Markdown. Default 50 MB. |
-| POST | `/pots/{pot_id}/extract-from-document` | Re-extract facts from a stored document into a (different) POT. |
+| POST | `/pots/{pot_id}/extract-from-document` | Re-extract facts from a stored document into a (different) POT. Accepts `context_attachment_ids` for explicit-scope extraction. |
 | GET | `/documents` | List documents in the workspace (pagination via cursor). |
 | GET | `/documents/{document_id}` | Document metadata + full content + extraction history. |
 | PATCH | `/documents/{document_id}` | Update document metadata (tags, author, etc.). |
 | DELETE | `/documents/{document_id}` | Delete document + its derived facts. |
 
 Quickstart: [end-to-end ingest example →](/get-started/quickstart#step-3-ingest-a-document).
+
+---
+
+## Context attachments
+
+Non-extractable curator guidance that travels with a document into extraction. Two types: `author_note` and `json_schema`. Hard-capped at 5 attachments per document, 80 KB total resolved set, 25 000 tokens in the assembled prompt section.
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/documents/{document_id}/context-attachments` | Create an inline attachment (JSON body, ≤ 16 KB UTF-8). |
+| POST | `/documents/{document_id}/context-attachments/upload` | Create from a file (multipart, ≤ 80 KB UTF-8). |
+| GET | `/documents/{document_id}/context-attachments` | List attachments on a document, ordered by `created_at`. |
+| DELETE | `/documents/{document_id}/context-attachments/{attachment_id}` | Delete an attachment (S3 blob included). Past facts keep the id in `context_attachment_ids_used`. |
+
+Concept: [Context Attachments →](/trust-mechanics/context-attachments). How-to: [Extraction with Context Attachments →](/guides/extraction-with-context-attachments).
 
 ---
 

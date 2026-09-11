@@ -40,7 +40,9 @@
             "group": "Guides",
             "pages": [
               "guides/writing-a-constitution",
-              "guides/extraction-with-context-attachments"
+              "guides/extraction-with-context-attachments",
+              "guides/extraction-profiles",
+              "guides/extraction-preview"
             ]
           },
           {
@@ -144,7 +146,14 @@
     }
   },
   "contextual": {
-    "options": ["copy", "view", "claude", "chatgpt", "cursor", "mcp"]
+    "options": [
+      "copy",
+      "view",
+      "claude",
+      "chatgpt",
+      "cursor",
+      "mcp"
+    ]
   },
   "integrations": {
     "posthog": {

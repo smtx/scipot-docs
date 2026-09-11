@@ -18,6 +18,98 @@ _Changes in flight on `main` but not yet tagged._
 
 ---
 
+## 0.5.3.1 — 2026-09-11
+
+### Security
+
+- **`GET /pots` lists the authenticated workspace only.** The route read the workspace from its `?workspace_id=` query parameter instead of the one validated against the API key (`X-Workspace-ID`). The parameter is deprecated and scheduled for removal in `0.6.0`: it is still accepted when it equals the caller's workspace and answers `403 WORKSPACE_ACCESS_DENIED` otherwise. The hidden legacy `GET /pots/by-slug/{workspace_id}/{slug}` got the same fix.
+
+### Fixed
+
+- Workspace POT lists larger than 1 MB were silently truncated on DynamoDB. They now page through every result.
+
+---
+
+## 0.5.3.0 — 2026-09-11
+
+### Fixed
+
+- **Extraction preview: `fine` previews no longer time out.** Each provider call in a preview is now bounded to 35 s (was 20 s; a `fine` extraction of a dense chunk needs 17–19 s). A call that hits the bound is a retryable `LLM_TIMEOUT` (a chunk error, or a `502` when every chunk failed); the `504 PREVIEW_TIMEOUT` is only the outer 45 s ceiling.
+
+---
+
+## 0.5.2.1 — 2026-09-11
+
+### Security
+
+- **Operator routes `GET /integrators/{id}/api-keys` and `DELETE /integrators/{id}/api-keys/{key_id}` now require the bootstrap key.** They were reachable without it. No integrator-side caller exists; API-key rotation and revocation remain [operator-only](/get-started/authentication).
+
+---
+
+## 0.5.2.0 — 2026-09-11
+
+### Added
+
+- **`POST /pots/{pot_id}/extract/preview`** — run the extraction pipeline on a text synchronously and get the facts it would create, **persisting nothing** (no facts, Document, job, vectors or edges; only the usage event, metered like an ingestion). Takes a stored profile (`profile_id`) or an inline one (`profile`, the `POST /profiles` body, never stored). The response is self-describing: `profile_applied`, `language_applied`, `document_context`, `chunking`, the facts in the `GET /facts/{id}` shape, `extraction_audit`, `errors[]` + `partial`, `usage`, `limits`. Declared in the contract: `dedup_scope` is `batch+constitution` (no dedup against the POT's existing facts), `score_stage` is `initial` and `edges` is `null` (no edge detection in this release), `persisted` is `false`. Limits: 12 288 characters (`413 PREVIEW_CONTENT_TOO_LARGE`), 45 s (`504 PREVIEW_TIMEOUT`), 4 concurrent per API process (`429 PREVIEW_CONCURRENCY_LIMIT`, `Retry-After: 5`), 30 per minute per integrator (`429 RATE_LIMIT_EXCEEDED`, `detail.scope = extraction_preview`). See [Extraction Preview](/guides/extraction-preview).
+- **Per-route rate limits.** On top of the integrator's global window, a route can have a window of its own (today only the preview). A `429` names the window that refused in `detail.scope` (`global` or the route) and carries that window's `X-RateLimit-*` headers.
+- `X-Contributor-ID` is a declared header on the preview, attributing usage events as on `/ingest`.
+
+### Changed
+
+- **`source.path` and `source.author` are bounded** on `/ingest` and the preview: 2048 and 256 characters, `422` above. The path is copied into every fact's provenance.
+- A `X-Contributor-ID` that is not a UUID is dropped with a warning instead of silently un-metering the request's usage events.
+
+---
+
+## 0.5.1.0 — 2026-09-11
+
+### Added
+
+- **Extraction-profile prompt levers.** A profile now carries three more optional levers: `granularity` (`fine` / `standard` / `coarse`), `additional_instructions` (free text, ≤ 1000 chars) and `business_relevance` (free text, ≤ 500 chars). They ride in the job's snapshot like the `0.5.0.0` levers and shape every chunk's extraction; the base prompt's own rules (output format, language, scope, atomicity) take precedence over the free text. Free text is validated at admission and again by the worker: normalised line endings, stripped, `422` when blank, containing control characters, or containing SciPot's guidance delimiters. The levers apply to the LLM extraction only; the deterministic table extractor is unaffected. `pii_exclusion` remains a `422` until the PII gate ships. See [the levers](/guides/extraction-profiles#the-levers).
+- **Expert-endorsed contributions.** `POST /pots/{pot_id}/facts/contribute` accepts `endorsed: bool`; `true` floors the contributed facts at VERIFIED, for a domain expert directly answering a knowledge gap.
+- **Knowledge-gap loop.** `POST /pots/{pot_id}/knowledge-gaps`, `GET /knowledge-gaps`, `GET /knowledge-gaps/{gap_id}`, `POST /knowledge-gaps/{gap_id}/transitions` (`open → routed → ingested → resolved`, with `expected_from` as a compare-and-set guard). `POST /pots/{pot_id}/synthesize` and `/query` return `is_knowledge_gap` and a versioned `gap_signal` (v2: relevance-aware).
+
+### Security
+
+- Workspace ids are canonicalised at the request boundary, so a mixed-case `X-Workspace-ID` can no longer strand a POT under an index variant that listing never returns. A storage error on `get_pot` is a retryable `503`, not a silent `404`.
+
+### Removed
+
+- **`DELETE /pots/vectors/reset`** (store-wide, unscoped) and the hidden **`POST /pots/from-directory`**. Neither had an integrator caller. `GET /pots/{pot_id}/vector-debug`, `POST /pots/{pot_id}/vectors/reindex` and `POST /pots/{pot_id}/propagate` are hidden from the public OpenAPI (still callable by operators).
+
+---
+
+## 0.5.0.0 — 2026-09-10
+
+**Extraction profiles.** A named, versioned bundle of extraction levers owned by a workspace. Ingestion under a profile records `provenance.profile_id` / `profile_version` on every fact, and the version keeps resolving after the profile is edited or deleted. The release line moves to `0.5` because a public entity was added and the ingestion contract changed.
+
+### Added
+
+- **`POST /profiles`**, **`GET /profiles`** (cursor-paginated), **`GET /profiles/{profile_id}`**, **`PUT /profiles/{profile_id}`** (full replacement; bumps `version`; `409` on a concurrent write), **`DELETE /profiles/{profile_id}`** (removes the head, keeps the versions), **`GET /profiles/{profile_id}/versions/{version}`**.
+- **`profile_id` on `POST /pots/{pot_id}/ingest` and `POST /pots/{pot_id}/extract-from-document`.** Unknown or another workspace's: `422 PROFILE_NOT_FOUND` before anything is enqueued. The profile is snapshotted into the job at enqueue time.
+- **`provenance.profile_id` / `provenance.profile_version` on `Fact`**, and the same pair on each `extraction_history` entry of a document. Additive fields: strict parsers must tolerate them, as with `context_attachment_ids_used`.
+- Levers in this release: `language` (precedence: request > profile > POT default > auto-detect) and `scope_aware` (`true` / `false` overrides the deployment flag; `null` follows it). Unknown levers are `422`.
+
+### Documentation
+
+- **New:** [Extraction Profiles](/guides/extraction-profiles) guide, [Extraction Preview](/guides/extraction-preview) guide (added 2026-09-11 with `0.5.3.1` live), the profile pair on [POT Score & Provenance](/trust-mechanics/pot-score-and-provenance#which-profile-produced-this-fact), profile and preview codes on [Errors](/api-reference/errors#extraction-profiles-and-preview).
+
+---
+
+## 0.4.0 → 0.4.15 — 2026-07-05 to 2026-09-07
+
+_Summary of the client-visible changes across the `0.4.x` line; the per-release detail is being backfilled._
+
+- **Job records expire** after 30 days (`0.4.12.0`). `GET /jobs/{job_id}` and `GET /jobs` stop returning a job once its record is deleted; facts and documents are unaffected.
+- **Partial results on ingestion and re-extraction jobs** (`0.4.8.0`): a job whose chunks partly fail completes with `errors[]` and `partial: true`; a job whose every chunk fails is `failed`. New job error codes: `LLM_RATE_LIMIT`, `LLM_QUOTA`, `LLM_TIMEOUT`, `LLM_UNAVAILABLE`, `LLM_INVALID_RESPONSE`, `LLM_AUTH_FAILED`, `LLM_NOT_CONFIGURED`, `LLM_ERROR`, `TOKEN_QUOTA_EXCEEDED`, `VALIDATION_ERROR`, `INTERNAL_ERROR`. A failed job is billed for the tokens it consumed.
+- **`PROVIDER_NOT_CONFIGURED`** (`503`, `0.4.14.0`): a provider the deployment selected cannot be built.
+- **`GET /health` reports the running release** (`0.4.15.0`) and `GET /ready` returns the `503` it documents.
+- **BREAKING: `DELETE /documents/{document_id}` cascades by default** (`0.4.6.0`), deleting derived facts, edges and vectors; `DELETE /pots/{pot_id}/facts/{fact_id}` deletes the fact's vector too.
+- **`POST /pots/{pot_id}/facts/import`** and **`POTResponse.domain`** (`0.4.3.0`). Knowledge Capsules shipped feature-flagged off (`0.4.0.0`).
+- A `scipot` CLI for POT, contributor and fact operations (`0.4.3.0`, `0.4.4.0`).
+
+---
+
 ## 0.3.0 — 2026-05-24
 
 **M21 — Context Attachments.** Curators can pin typed, non-extractable guidance to a document — an `author_note` (free-text framing) or a `json_schema` (reference for negative-space facts) — that travels into every extraction call against that document. The extraction LLM uses the attachment to interpret the primary document but never produces facts attributable solely to the attachment. Every fact created under an M21+ extraction carries a `context_attachment_ids_used` snapshot for full provenance.

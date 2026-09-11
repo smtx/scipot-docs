@@ -133,7 +133,7 @@ Codes are stable across versions. We never repurpose a code; we may add new ones
 
 | Code | HTTP | Cause | Fix |
 |---|---|---|---|
-| `RATE_LIMITED` | 429 | Per-integrator request rate exceeded. | Back off per `Retry-After`. Use exponential backoff for sustained pressure. |
+| `RATE_LIMIT_EXCEEDED` | 429 | Per-integrator request rate exceeded — the global sliding window, or a route's own window (today only the extraction preview, 30/min). `detail.scope` names which: `global` or `extraction_preview`. | Back off per `Retry-After`; the `X-RateLimit-*` headers describe the window that refused. Use exponential backoff for sustained pressure. |
 | `RATE_CONCURRENT_JOBS` | 429 | Too many concurrent ingestion jobs in this workspace. | Wait for current jobs to complete; raise concurrent-job limit during onboarding. |
 
 ### Validation (`VALIDATION_*`) — never retryable
@@ -179,6 +179,23 @@ Codes are stable across versions. We never repurpose a code; we may add new ones
 | `INTERNAL_ERROR` | 500 | Unhandled server error. | Retry once. If persistent, file an issue with the `request_id`. | Yes (once) |
 | `INTERNAL_DATABASE` | 503 | Database temporarily unavailable. | Retry with backoff. | Yes |
 | `INTERNAL_DEPENDENCY` | 503 | Downstream service (Pinecone, S3, OpenAI) unavailable. | Retry with backoff. | Yes |
+
+### Extraction profiles and preview
+
+Codes introduced with [Extraction Profiles](/guides/extraction-profiles) (`0.5.0.0`) and [Extraction Preview](/guides/extraction-preview) (`0.5.2.0`).
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `PROFILE_NOT_FOUND` | 422 | `profile_id` on `/ingest`, `/extract-from-document` or `/extract/preview` is not an extraction profile of this workspace (unknown, deleted, or another tenant's). Nothing was enqueued or metered; `detail.profile_id` echoes the id. | List `GET /profiles` and use an id from there. | No |
+| `PREVIEW_CONTENT_TOO_LARGE` | 413 | Preview `content` longer than 12 288 characters. | Preview a shorter excerpt, or ingest the document and inspect the job result. | No |
+| `PREVIEW_CONCURRENCY_LIMIT` | 429 | More than 4 previews in flight on one API process (per replica, not per integrator). | Honor `Retry-After: 5`; a slot frees within one typical preview. | Yes |
+| `PREVIEW_TIMEOUT` | 504 | The whole preview exceeded its 45 s ceiling. Completed provider calls were metered; in-flight ones were cancelled and were not. | Retry with a shorter excerpt. | Yes |
+| `LLM_TIMEOUT` / `LLM_RATE_LIMIT` / `LLM_UNAVAILABLE` / `LLM_INVALID_RESPONSE` | 502 *(on the preview)* | Nothing could be extracted: every chunk failed with that provider code, or the document-context call did. On a preview each provider call is bounded to 35 s with no SDK retries, so a slow provider is a typed 502 here rather than a job error. | Retry the preview. `retryable` on the envelope is authoritative. | Yes |
+| *(no code)* | 409 | `PUT` or `DELETE /profiles/{profile_id}` lost to a concurrent write. | Re-read the head and retry. | Yes, after re-read |
+
+<Note>
+**Two body shapes on the preview route.** Gates the preview shares with `/ingest` (rate limit, POT lookup, validation, token quota) answer `{"detail": ...}` like `/ingest` does; the preview's own gates (`413`, concurrency `429`, `5xx`) answer the `{"error": {...}}` envelope above. OpenAPI documents the shape per status. A parser that reads `body.error ?? body.detail` handles both.
+</Note>
 
 ### Async job failures
 

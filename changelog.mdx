@@ -96,17 +96,81 @@ _Changes in flight on `main` but not yet tagged._
 
 ---
 
-## 0.4.0 → 0.4.15 — 2026-07-05 to 2026-09-07
+## 0.4.15.0 — 2026-09-07
 
-_Summary of the client-visible changes across the `0.4.x` line; the per-release detail is being backfilled._
+### Fixed
 
-- **Job records expire** after 30 days (`0.4.12.0`). `GET /jobs/{job_id}` and `GET /jobs` stop returning a job once its record is deleted; facts and documents are unaffected.
-- **Partial results on ingestion and re-extraction jobs** (`0.4.8.0`): a job whose chunks partly fail completes with `errors[]` and `partial: true`; a job whose every chunk fails is `failed`. New job error codes: `LLM_RATE_LIMIT`, `LLM_QUOTA`, `LLM_TIMEOUT`, `LLM_UNAVAILABLE`, `LLM_INVALID_RESPONSE`, `LLM_AUTH_FAILED`, `LLM_NOT_CONFIGURED`, `LLM_ERROR`, `TOKEN_QUOTA_EXCEEDED`, `VALIDATION_ERROR`, `INTERNAL_ERROR`. A failed job is billed for the tokens it consumed.
-- **`PROVIDER_NOT_CONFIGURED`** (`503`, `0.4.14.0`): a provider the deployment selected cannot be built.
-- **`GET /health` reports the running release** (`0.4.15.0`) and `GET /ready` returns the `503` it documents.
-- **BREAKING: `DELETE /documents/{document_id}` cascades by default** (`0.4.6.0`), deleting derived facts, edges and vectors; `DELETE /pots/{pot_id}/facts/{fact_id}` deletes the fact's vector too.
-- **`POST /pots/{pot_id}/facts/import`** and **`POTResponse.domain`** (`0.4.3.0`). Knowledge Capsules shipped feature-flagged off (`0.4.0.0`).
-- A `scipot` CLI for POT, contributor and fact operations (`0.4.3.0`, `0.4.4.0`).
+- **`GET /health` reports the release that is actually running.** It had answered `{"version": "0.1.0"}` on every deploy: a hardcoded default. The version now comes from the package answering the request, and OpenAPI's `info.version` is fixed the same way.
+- **`GET /ready` returns the `503` it documents** when storage is unreachable, instead of a `500` whose body never reached the caller. Its `detail` is a fixed reason; adapter error text stays in the logs.
+
+### Changed
+
+- **The `version` field on the health response is required** and no longer carries a compile-time default, so a generated client cannot fall back to the release it was built against.
+- `/ready` requires an API key, and the documentation now says so.
+
+---
+
+## 0.4.14.0 — 2026-09-07
+
+### Added
+
+- **`PROVIDER_NOT_CONFIGURED` (`503`).** A route that needs a provider this deployment selected but did not configure now answers the standard error envelope instead of a bare `500`. Not retryable; contact the operator of the instance.
+
+### Changed
+
+- A deployment whose selected provider is unconfigured now fails its health check and rolls back, instead of silently serving an empty vector store. No client change; you will not see a half-working brain after a bad deploy.
+
+---
+
+## 0.4.12.0 — 2026-09-06
+
+### Changed
+
+- **Job records expire.** 30 days after `created_at` a job record becomes eligible for deletion; once removed, `GET /jobs/{job_id}` returns `404` and `GET /jobs` stops listing it. The sweep is asynchronous with no timing guarantee, so 30 days is a floor on availability, not an exact deletion time. A `404` on an old job means "expired", not "never existed". **Do not treat a job id as a durable foreign key:** persist the terminal `result` / `error` on your side when the job completes. Facts and documents are unaffected.
+- A finished job no longer keeps a copy of the ingested content on its record; the scrub happens in the same write that marks the job terminal.
+- Jobs that had already finished before this release keep their record and do not expire.
+
+---
+
+## 0.4.8.0 — 2026-09-05
+
+_Ingestion jobs now tell you what went wrong, chunk by chunk. New optional fields and error codes; nothing existing changes type or disappears._
+
+### Added
+
+- **Partial results on ingestion and re-extraction jobs.** When the model fails on some chunks, the job still completes with the facts from the others and reports what it skipped: `result.partial` is `true`, `result.chunks_failed` counts the failed chunks and `result.errors[]` lists the first 25 as `{chunk_index, code, message, retryable}`. Before, a failed chunk silently became zero facts. Re-extract the document to fill the gaps; deduplication keeps the facts you already have.
+- **New job error codes:** `LLM_NOT_CONFIGURED` (no provider key on the deployment), `LLM_AUTH_FAILED` (provider rejected the credentials), `LLM_QUOTA` (provider quota exhausted on SciPot's side; no longer mistaken for a retryable rate limit), `LLM_UNAVAILABLE` (provider unreachable or 5xx, retryable), `LLM_ERROR` (anything else). `error.step` is `extracting_facts` when every chunk failed.
+
+### Changed
+
+- **A job whose every chunk fails now fails** with the dominant chunk code, before any fact, vector or edge is written. It used to complete with `facts_created: 0`. When the document also had tables, their deterministic facts are kept and the job completes as partial.
+- Document-wide failures (auth, quota, rate limit, provider down) stop early instead of calling the provider once per chunk.
+- Every job error is classified by exception class in every write path. `LLM_INVALID_RESPONSE` is retryable; a deleted or foreign POT is `VALIDATION_ERROR`; storage timeouts and throttling are `INTERNAL_ERROR` with `retryable: true`.
+- Error messages on the job record never carry provider bodies: status and request id only.
+- **A failed job is billed for the tokens it consumed**, exactly once, on success and on failure.
+
+---
+
+## 0.4.6.0 — 2026-08-02
+
+_Real retention and erasure. Deleting knowledge now deletes it everywhere: storage, edges, embeddings, and, after a bounded window, backups._
+
+### Changed (breaking)
+
+- **`DELETE /documents/{document_id}` cascades by default** (`cascade=true`). Deleting a document erases the facts, edges and embeddings derived from it. Pass `cascade=false` explicitly to keep the previous metadata-and-file-only behaviour.
+
+### Fixed
+
+- **Cascade deletion left every embedding behind.** Deleted facts stayed semantically searchable. All deletion paths now remove the vectors.
+- **`DELETE /pots/{pot_id}/facts/{fact_id}` deletes the fact's embedding.** The embedding goes first, with retries; if the vector store stays unavailable the endpoint returns `502` and leaves the fact intact so a retry erases both.
+- Vector deletion is retried three times with backoff. Persistent failures surface in the additive `DeletionResult.vector_cleanup_errors` / `PotDeletionDetail.vectors_delete_failed` fields instead of a log line.
+- Deleted document objects in backup storage now expire 30 days after deletion, bounding the post-deletion window to the published retention policy.
+
+---
+
+## Other 0.4.x releases — 2026-07-05 to 2026-09-07
+
+`0.4.0.0` to `0.4.5.0`, `0.4.7.0`, `0.4.9.0` to `0.4.11.0`, `0.4.13.0` and `0.4.14.1` carried internal changes (dependency upgrades, logging, deploy and worker plumbing) with no change to the API contract, plus: **`POST /pots/{pot_id}/facts/import`** and **`POTResponse.domain`** (`0.4.3.0`), a `scipot` CLI for POT, contributor and fact operations (`0.4.3.0`, `0.4.4.0`), and Knowledge Capsules shipped feature-flagged off (`0.4.0.0`). `GET /jobs?status_filter=…` no longer answers from a stale index (`0.4.13.0`).
 
 ---
 

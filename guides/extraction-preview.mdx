@@ -1,0 +1,234 @@
+---
+title: "Extraction Preview"
+sidebarTitle: "Extraction Preview"
+description: "Run the real extraction pipeline on a text and read the facts it would create, without persisting anything. Stored or inline profile, synchronous, 12 288 characters, 45 seconds. The only trace is the usage event."
+---
+
+`POST /pots/{pot_id}/extract/preview` runs the same pipeline an ingestion runs — document context, deterministic tables, semantic chunking, LLM extraction under a profile's levers, initial POT Score, deduplication — and returns the facts, synchronously, without writing any of them. No fact, no Document, no job, no vector, no edge. The workspace's document and storage counters do not move.
+
+The one durable trace is the usage event (`operation = extraction_preview`). It counts against the workspace's monthly token quota exactly like an ingestion, on success and on every token-consuming failure.
+
+Available since API `0.5.2.0`. Read [Extraction Profiles](/guides/extraction-profiles) first if you have not.
+
+## What it is for
+
+- **Tuning a profile.** Change `granularity`, re-run, compare `extraction_audit.kept`. Iterate inline, then save the winning levers with `POST /profiles`.
+- **Showing a curator what a document will become** before the ingestion is committed.
+- **Checking a document is readable at all** (language detection, chunk count, table facts) before spending an ingestion job on it.
+
+It is not a substitute for ingestion: it dedups against the POT's constitution only, it does not run edge detection, and it is capped at 12 288 characters.
+
+## Prerequisites
+
+```bash
+export SCIPOT_URL="https://api.scipot.ai"
+export SCIPOT_KEY="ik_live_..."
+export WORKSPACE_ID="01H..."
+export POT_ID="01H..."
+```
+
+Same headers as `/ingest`: `X-API-Key`, `X-Workspace-ID`, and optionally `X-Contributor-ID` to attribute the usage event.
+
+## Three ways to call it
+
+<Tabs>
+  <Tab title="No profile">
+    The base behaviour, for a baseline.
+
+    ```bash
+    curl -X POST "$SCIPOT_URL/pots/$POT_ID/extract/preview" \
+      -H "X-API-Key: $SCIPOT_KEY" \
+      -H "X-Workspace-ID: $WORKSPACE_ID" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "content": "# Master Services Agreement\n\n12.1 The liability cap is 12 months of fees.\n12.2 SLA credits are capped at 10% of the monthly fee.",
+        "source": {"path": "contracts/msa-draft.md", "type": "markdown"}
+      }'
+    ```
+
+    `profile_applied` is `null` in the response.
+  </Tab>
+  <Tab title="Stored profile">
+    A profile of this workspace, snapshotted exactly as `/ingest` does. The facts carry the provenance pair a real ingestion would stamp.
+
+    ```bash
+    curl -X POST "$SCIPOT_URL/pots/$POT_ID/extract/preview" \
+      -H "X-API-Key: $SCIPOT_KEY" \
+      -H "X-Workspace-ID: $WORKSPACE_ID" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"content\": \"# Master Services Agreement\n\n12.1 The liability cap is 12 months of fees.\n12.2 SLA credits are capped at 10% of the monthly fee.\",
+        \"source\": {\"path\": \"contracts/msa-draft.md\", \"type\": \"markdown\"},
+        \"profile_id\": \"$PROFILE_ID\"
+      }"
+    ```
+  </Tab>
+  <Tab title="Inline profile">
+    The body `POST /profiles` accepts (`name` plus levers), applied to this preview only and never stored. `description` is accepted and ignored. The facts' `provenance.profile_id` and `profile_version` are `null`: there is no version to point at.
+
+    ```bash
+    curl -X POST "$SCIPOT_URL/pots/$POT_ID/extract/preview" \
+      -H "X-API-Key: $SCIPOT_KEY" \
+      -H "X-Workspace-ID: $WORKSPACE_ID" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "content": "# Master Services Agreement\n\n12.1 The liability cap is 12 months of fees.\n12.2 SLA credits are capped at 10% of the monthly fee.",
+        "source": {"path": "contracts/msa-draft.md", "type": "markdown"},
+        "language": "en",
+        "profile": {
+          "name": "Legal (draft)",
+          "granularity": "fine",
+          "business_relevance": "Liability caps, SLAs and termination rights."
+        }
+      }'
+    ```
+  </Tab>
+</Tabs>
+
+| Field | Notes |
+|---|---|
+| `content` | Required. Plain text or Markdown, at most **12 288 characters**. Longer is `413 PREVIEW_CONTENT_TOO_LARGE`. The cap is enforced by the route, not declared as `maxLength` in OpenAPI, so a generated client does not pre-empt the `413` with a `422` of its own. |
+| `source` | Optional. Same model as `/ingest` (`path` ≤ 2048 chars, `author` ≤ 256). Defaults to path `preview`, type `text`. Lands on each fact's `provenance.sources[0]`. |
+| `language` | Optional ISO 639-1 override. Same ladder as `/ingest`: request > profile > POT default > auto-detect. Only the [supported codes](/guides/extraction-profiles#the-levers) are accepted. |
+| `profile_id` | A stored profile of this workspace. Unknown, deleted, or another workspace's: `422 PROFILE_NOT_FOUND`. |
+| `profile` | An inline profile. Validated with the same rules as `POST /profiles`. |
+
+`profile_id` and `profile` are mutually exclusive (`422` when both are sent). Omit both to preview without a profile. Unknown fields are a `422`, like `/ingest`.
+
+## Reading the response
+
+```json
+{
+  "pot_id": "01H...",
+  "persisted": false,
+  "score_stage": "initial",
+  "edges": null,
+  "dedup_scope": "batch+constitution",
+  "profile_applied": {
+    "source": "inline",
+    "profile_id": null,
+    "version": null,
+    "name": "Legal (draft)",
+    "language": null,
+    "scope_aware": null,
+    "granularity": "fine",
+    "additional_instructions": null,
+    "business_relevance": "Liability caps, SLAs and termination rights."
+  },
+  "language_applied": "en",
+  "content_chars": 118,
+  "document_context": {
+    "title": "Master Services Agreement",
+    "key_entities": ["liability cap", "SLA credits"],
+    "main_themes": ["contract terms"],
+    "document_type": "reference",
+    "language": "en"
+  },
+  "chunking": {
+    "chunks_total": 1,
+    "chunks_failed": 0,
+    "target_size_tokens": 2500,
+    "overlap_tokens": 300
+  },
+  "facts": [
+    {
+      "id": "01J...",
+      "content": "Clause 12.1: the liability cap is 12 months of fees.",
+      "pot_score": 0.65,
+      "level": "SUPPORTED",
+      "language": "en",
+      "provenance": {
+        "type": "extracted",
+        "sources": [{ "location": "contracts/msa-draft.md", "source_type": "markdown" }],
+        "profile_id": null,
+        "profile_version": null
+      }
+    }
+  ],
+  "extraction_audit": {
+    "total_extracted": 3,
+    "kept": 2,
+    "discarded": 1,
+    "discarded_facts": [
+      { "id": "01J...", "content": "The liability cap equals twelve months of fees.", "reason": "duplicate", "duplicate_of_id": "01J...", "similarity_score": 0.94, "timestamp": "2026-09-11T10:02:11Z" }
+    ]
+  },
+  "errors": [],
+  "partial": false,
+  "processing_time_ms": 8400,
+  "usage": { "llm_calls": 2, "prompt_tokens": 1900, "completion_tokens": 420 },
+  "limits": {
+    "max_content_chars": 12288,
+    "timeout_seconds": 45,
+    "max_concurrent_per_process": 4,
+    "requests_per_minute": 30
+  }
+}
+```
+
+Every number has one home:
+
+| Field | Meaning |
+|---|---|
+| `persisted` | Always `false`. |
+| `score_stage` / `edges` | `initial` / `null` in this release. Constitution edge detection and POT Score propagation do not run in a preview. `propagated` and a list of edges are reserved for the release that adds them, so a generated client already knows the shape. |
+| `dedup_scope` | `batch+constitution`. The previewed facts were deduplicated against each other and the POT's constitution only, **not** against the facts already in the POT. A real ingestion also dedups against existing facts, so it may keep fewer than shown. |
+| `profile_applied` | The levers that shaped the extraction and where they came from: `source` is `stored` or `inline`. For a stored profile, `profile_id` / `version` are the pair a real ingestion would stamp on `provenance`. For an inline one both are `null`, on the facts too. `null` when no profile ran. |
+| `language_applied` | The extraction language after the ladder: the `language` on every fact. |
+| `document_context` | What the model understood the document to be, before chunking. |
+| `chunking` | What the semantic chunker did with the non-table text. Sizes are in **tokens**, the chunker's unit. |
+| `facts` | The shape `GET /pots/{pot_id}/facts/{fact_id}` returns (`pot_score`, `level`, `provenance`, `classification`, scope fields when scope-aware), in creation order. **Ids are throwaway.** |
+| `extraction_audit` | Counts before and after deduplication (`kept` equals `len(facts)`), and each discarded fact with its `reason`: `duplicate` (of another previewed fact, `duplicate_of_id` and `similarity_score` say which and how close), `duplicate_of_constitution`, `too_short`, `too_long`. |
+| `errors` / `partial` | One `{chunk_index, code, message, retryable}` per failed chunk, first 25 at most, same codes as a job's `errors[]`. `partial` is `true` when `chunking.chunks_failed > 0`. A chunk that fails while others succeed is a `200` with `partial: true`, not an error status. |
+| `usage` | LLM calls and tokens as metered for this preview. |
+| `limits` | The ceilings this call ran under, so you can size inputs without hard-coding them. |
+
+<Note>
+**Counts vary between runs.** `coarse` granularity and `business_relevance` ask the model for a judgement, and two previews of the same text under the same levers can keep a different number of facts. Read `extraction_audit` across a few runs before you conclude a lever is wrong.
+</Note>
+
+## Limits and errors
+
+In the order the gates run:
+
+| Status | Code | Body shape | When |
+|---|---|---|---|
+| `429` | `RATE_LIMIT_EXCEEDED` | `detail` | More than **30 previews per minute** per integrator (a window of its own, on top of the global limit), or the global limit itself. `detail.scope` is `extraction_preview` or `global`. `Retry-After` and the `X-RateLimit-*` headers describe the window that refused. |
+| `413` | `PREVIEW_CONTENT_TOO_LARGE` | `error` | `content` longer than 12 288 characters. Preview a shorter excerpt, or ingest the document and inspect the job. |
+| `404` | | `detail` | POT not found in this workspace. |
+| `422` | `PROFILE_NOT_FOUND`, validation | `detail` | Unknown profile, both profile sources, unsupported `language`, an inline profile failing the profile rules, unknown fields. |
+| `429` | `TOKEN_QUOTA_EXCEEDED` | `detail` | Monthly token quota reached. |
+| `429` | `PREVIEW_CONCURRENCY_LIMIT` | `error` + `Retry-After: 5` | A fifth preview in flight on the same API process (**4 concurrent per process**, per replica, not per integrator). A slot frees within one typical preview. |
+| `503` | `LLM_NOT_CONFIGURED` | `error` | No usable LLM key on this deployment. |
+| `502` | `LLM_TIMEOUT`, `LLM_RATE_LIMIT`, `LLM_UNAVAILABLE`, `LLM_INVALID_RESPONSE` | `error` | Nothing could be extracted: every chunk failed with that provider code, or the document-context call itself failed. `retryable` says whether to try again. |
+| `504` | `PREVIEW_TIMEOUT` | `error` | The whole pipeline exceeded the **45 s** ceiling. Provider calls that had completed were metered; calls still in flight were cancelled and are not. Retry with a shorter excerpt. |
+| `500` | `INTERNAL_ERROR` | `error` | A failure of ours. `retryable` is `true` only for transient infrastructure failures. |
+
+Two body shapes on one route, documented per status in OpenAPI: the gates this route shares with `/ingest` answer `{"detail": ...}` like that route; the preview's own gates answer the `{"error": {code, message, fix, docs_url, request_id, retryable}}` envelope from [Errors](/api-reference/errors).
+
+### Timeouts, precisely
+
+Each provider call in a preview is bounded to **35 s** with no SDK retries (an SDK retry would honour the provider's `Retry-After` for up to two minutes and blow the ceiling). A call that hits that bound is a retryable `LLM_TIMEOUT`: a chunk error in `errors[]` with `partial: true` when other chunks succeeded, a `502` when every chunk failed or the context call timed out. A provider `429` is `LLM_RATE_LIMIT`; a provider 5xx is `LLM_UNAVAILABLE`; both retryable. The `504 PREVIEW_TIMEOUT` is reserved for the outer 45 s ceiling.
+
+The client retries the preview. SciPot does not retry a provider call inside a preview.
+
+## Workbench pattern
+
+1. Preview with no profile. Note `extraction_audit.kept` and skim the facts.
+2. Preview with an inline `profile`. Change one lever at a time.
+3. When the facts look right, `POST /profiles` with the same body. You get a `profile_id` and `version: 1`.
+4. Preview once more with `profile_id` to confirm `profile_applied.source` is `stored` and the facts carry the pair.
+5. Ingest with `profile_id`.
+
+Steps 1 to 4 cost previews (tokens, no storage). Step 5 is the only write.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Extraction Profiles" icon="sliders" href="/guides/extraction-profiles">
+    The levers, versioning, provenance, and the dual-axis pattern.
+  </Card>
+  <Card title="Errors" icon="triangle-exclamation" href="/api-reference/errors#extraction-profiles-and-preview">
+    The preview's codes in the full error reference.
+  </Card>
+</CardGroup>

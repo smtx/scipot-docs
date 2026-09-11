@@ -1,0 +1,316 @@
+---
+title: "Extraction Profiles"
+sidebarTitle: "Extraction Profiles"
+description: "Tune how SciPot turns a document into facts: a named, versioned bundle of extraction levers you apply per ingestion. Every fact records the profile version it was extracted under, and that version keeps resolving after you edit or delete the profile."
+---
+
+An extraction profile is a named bundle of levers, owned by a workspace, that shapes how the extraction model reads a document: which language to extract in, how finely to split the text into facts, what the destination knowledge base is for, and free-text guidance for the model. You create it once, pass its id on an ingestion, and every fact that comes out records `provenance.profile_id` and `provenance.profile_version`.
+
+Profiles are versioned and the versions are immutable. Editing a profile writes version `n+1`; deleting it removes only the head. A fact extracted under version 2 six months ago still resolves to the exact levers that produced it, whatever happened to the profile since.
+
+Available since API `0.5.0.0` (`language`, `scope_aware`) and `0.5.1.0` (the three prompt levers). To try levers on a text before committing to an ingestion, see [Extraction Preview](/guides/extraction-preview).
+
+## When you want one
+
+- **The same document feeds two POTs with different needs.** A supplier contract goes into a legal POT with `coarse` granularity and a liability focus, and into a finance POT with `fine` granularity and a payment-terms focus. Two profiles, two ingestions, one document. See [dual-axis extraction](#pattern-dual-axis-extraction) below.
+- **Your documents are in one language and your agents answer in another.** Set `language` on the profile instead of on every request.
+- **A domain needs house rules.** "Keep the clause number in every fact", "quote amounts in EUR", "treat the vendor's marketing claims as third-party". That is `additional_instructions`.
+- **You are tuning extraction for a customer.** Iterate on levers with the preview, save the winning set as a profile, and the provenance pair tells you later which version each fact came from.
+
+If you have one POT, one language and no house rules, you do not need a profile. Ingestion without `profile_id` behaves exactly as before.
+
+## Prerequisites
+
+An active `ik_live_` key, a workspace, and a POT with a Constitution. If not, see the [Quickstart](/get-started/quickstart).
+
+```bash
+export SCIPOT_URL="https://api.scipot.ai"
+export SCIPOT_KEY="ik_live_..."
+export WORKSPACE_ID="01H..."
+export POT_ID="01H..."
+```
+
+## Step 1 — Create a profile
+
+Only `name` is required. Every lever is optional and defaults to `null`, which means "no opinion, use the base behaviour".
+
+```bash
+curl -X POST "$SCIPOT_URL/profiles" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Legal contracts",
+    "description": "SLAs and liability clauses for the legal POT",
+    "language": "en",
+    "scope_aware": true,
+    "granularity": "coarse",
+    "additional_instructions": "Keep the clause number in every fact. Quote amounts in EUR.",
+    "business_relevance": "Liability caps, SLAs and termination rights in customer contracts."
+  }'
+```
+
+Response (`201`):
+
+```json
+{
+  "profile_id": "01J...PROF",
+  "workspace_id": "01H...",
+  "name": "Legal contracts",
+  "description": "SLAs and liability clauses for the legal POT",
+  "language": "en",
+  "scope_aware": true,
+  "granularity": "coarse",
+  "additional_instructions": "Keep the clause number in every fact. Quote amounts in EUR.",
+  "business_relevance": "Liability caps, SLAs and termination rights in customer contracts.",
+  "version": 1,
+  "created_at": "2026-09-11T10:00:00Z",
+  "updated_at": "2026-09-11T10:00:00Z"
+}
+```
+
+```bash
+export PROFILE_ID="01J...PROF"
+```
+
+Names are unique by convention only. The id is the key, so two profiles can share a name. Unknown fields are rejected with `422`, including levers that later releases add (`pii_exclusion` is one): a profile never carries a lever the deployment silently ignores.
+
+## The levers
+
+| Lever | Type | What it does |
+|---|---|---|
+| `language` | ISO 639-1 code or `null` | Extraction language when the ingestion request carries none. Precedence: request `language` > profile `language` > the POT's `default_language` > auto-detect. Only the codes SciPot extracts in are accepted: `en`, `es`, `fr`, `de`, `pt`, `it`, `ca`, `nl`, `ja`, `zh`, `ko`, `ar`. Any other code, valid ISO or not, is a `422`. |
+| `scope_aware` | `true` / `false` / `null` | Scope-aware extraction tags each fact as `own`, `third_party` or `mixed_context`. `true` or `false` overrides the deployment's flag; `null` follows it. |
+| `granularity` | `"fine"` / `"standard"` / `"coarse"` / `null` | How finely the model splits the text. `fine` extracts every data point and minor attribute. `coarse` keeps only the substantive claims: decisions, rules, commitments, key figures, definitions. `standard` and `null` are the base prompt's own behaviour. |
+| `additional_instructions` | string ≤ 1000 chars or `null` | Free-text guidance the model reads on every chunk. It refines *what* to extract and *how* to phrase facts. Every rule of the base prompt (output format, language, scope, atomicity) takes precedence over it, and the model is told so. |
+| `business_relevance` | string ≤ 500 chars or `null` | One statement of what the destination knowledge base is for. The model prioritises facts that bear on it and may omit claims that do not. |
+| `description` | string ≤ 500 chars or `null` | For you, not for the model. Never reaches the prompt. |
+
+Three things worth knowing before you tune:
+
+**Levers apply to the LLM extraction only.** SciPot runs a deterministic table extractor before the model call, one fact per table cell. Those facts are the same under any granularity or relevance statement. A table-heavy document yields the same table facts under every profile.
+
+**The free-text levers are validated at admission, and again when the worker picks up the job.** Line endings are normalised to LF and the text is stripped; the length cap is measured on that normalised text. A `422` comes back when the text is blank, when it contains control characters other than line breaks and tabs, or when it contains the delimiter strings SciPot uses to fence guidance inside its own prompt. The last rule exists so the model always sees exactly one guidance block, and it is the reason a pasted prompt fragment can be refused.
+
+**`coarse` and `business_relevance` are not deterministic.** They ask the model to make a judgement call, and two runs on the same text can keep a different number of facts. Compare trends across a few previews, not single counts.
+
+## Step 2 — Preview before you ingest
+
+A preview runs the real pipeline under the profile and returns the facts a real ingestion would create, without writing anything. It is the cheap way to find out whether `coarse` is too coarse for your documents.
+
+```bash
+curl -X POST "$SCIPOT_URL/pots/$POT_ID/extract/preview" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"content\": \"# Master Services Agreement\n\n12.1 The liability cap is 12 months of fees.\n12.2 SLA credits are capped at 10% of the monthly fee.\",
+    \"source\": {\"path\": \"contracts/msa-draft.md\", \"type\": \"markdown\"},
+    \"profile_id\": \"$PROFILE_ID\"
+  }"
+```
+
+The response carries `profile_applied` (the levers that ran, with `source: "stored"`, the `profile_id` and the `version`), the facts with their provenance pair already stamped, an `extraction_audit`, and the `usage` it cost. Full walkthrough, inline profiles and the limits: [Extraction Preview](/guides/extraction-preview).
+
+## Step 3 — Ingest with the profile
+
+Both ingestion routes take an optional `profile_id`.
+
+<Tabs>
+  <Tab title="Inline text">
+    ```bash
+    curl -X POST "$SCIPOT_URL/pots/$POT_ID/ingest" \
+      -H "X-API-Key: $SCIPOT_KEY" \
+      -H "X-Workspace-ID: $WORKSPACE_ID" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"content\": \"# Master Services Agreement\n\n12.1 The liability cap is 12 months of fees. ...\",
+        \"source\": {\"path\": \"contracts/msa.md\", \"type\": \"markdown\", \"author\": \"legal\"},
+        \"profile_id\": \"$PROFILE_ID\"
+      }"
+    ```
+  </Tab>
+  <Tab title="Stored document">
+    ```bash
+    curl -X POST "$SCIPOT_URL/pots/$POT_ID/extract-from-document" \
+      -H "X-API-Key: $SCIPOT_KEY" \
+      -H "X-Workspace-ID: $WORKSPACE_ID" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"document_id\": \"$DOCUMENT_ID\",
+        \"profile_id\": \"$PROFILE_ID\"
+      }"
+    ```
+
+    `profile_id` composes with `context_attachment_ids`: the profile shapes *how* the model extracts, the attachments shape *how it reads this document*. See [Extraction with Context Attachments](/guides/extraction-with-context-attachments).
+  </Tab>
+</Tabs>
+
+Response is the standard async `202` with a `job_id`. Poll `GET /jobs/{job_id}` until `status: completed`.
+
+| `profile_id` | Effect |
+|---|---|
+| omitted / `null` | No profile. Facts carry `provenance.profile_id = null` and `provenance.profile_version = null`. |
+| a profile of this workspace | Its levers are **snapshotted into the job at enqueue time**. Every fact records `provenance.profile_id` and `provenance.profile_version`. |
+| unknown, or a profile of another workspace | `422` with `detail.code = "PROFILE_NOT_FOUND"` and `detail.profile_id`, before anything is enqueued or metered. |
+
+<Note>
+**The snapshot is the contract.** The worker never re-reads the profile. Edit or delete it while a job is queued and the job still runs under the levers it was enqueued with. What you see in `GET /profiles/{profile_id}/versions/{n}` for that `n` is exactly what the job applied.
+</Note>
+
+## Step 4 — Read the provenance
+
+Every fact created by the job carries the pair:
+
+```bash
+curl "$SCIPOT_URL/pots/$POT_ID/facts/$FACT_ID" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID"
+```
+
+```json
+{
+  "id": "01J...FACT",
+  "content": "Clause 12.1: the liability cap is 12 months of fees.",
+  "pot_score": 0.65,
+  "level": "SUPPORTED",
+  "language": "en",
+  "provenance": {
+    "type": "extracted",
+    "sources": [{ "location": "contracts/msa.md", "source_type": "markdown" }],
+    "profile_id": "01J...PROF",
+    "profile_version": 1
+  }
+}
+```
+
+| `provenance.profile_id` | `provenance.profile_version` | Meaning |
+|---|---|---|
+| `null` | `null` | Extracted without a profile, or created outside the extraction pipeline (manual, contributed, synthesised). |
+| `"01J...PROF"` | `n` (≥ 1) | Extracted under version `n` of that profile. Resolve it with `GET /profiles/{profile_id}/versions/{n}`. |
+
+The two fields are always set together. They are additive on the Fact shape: a strict parser (`additionalProperties: false`, `extra='forbid'`, a zod object without `.passthrough()`) must tolerate them.
+
+The document's `extraction_history` (`GET /documents/{document_id}`) records the same pair per extraction. That matters twice: job records expire after 30 days, and a re-extraction whose facts were all deduplicated away leaves no fact to inspect. The history entry still says which profile version ran, and when.
+
+## Step 5 — Edit a profile (a new version)
+
+`PUT` is a **full replacement** of `name` and the levers. An omitted lever becomes `null`. The write bumps `version` and records the new state as an immutable version.
+
+```bash
+curl -X PUT "$SCIPOT_URL/profiles/$PROFILE_ID" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Legal contracts",
+    "description": "SLAs and liability clauses for the legal POT",
+    "language": "en",
+    "scope_aware": true,
+    "granularity": "fine",
+    "additional_instructions": "Keep the clause number in every fact. Quote amounts in EUR.",
+    "business_relevance": "Liability caps, SLAs and termination rights in customer contracts."
+  }'
+```
+
+Response (`200`) is the profile with `version: 2`. Now both versions resolve:
+
+```bash
+curl "$SCIPOT_URL/profiles/$PROFILE_ID/versions/1" -H "X-API-Key: $SCIPOT_KEY" -H "X-Workspace-ID: $WORKSPACE_ID"
+# → granularity: "coarse"
+curl "$SCIPOT_URL/profiles/$PROFILE_ID/versions/2" -H "X-API-Key: $SCIPOT_KEY" -H "X-Workspace-ID: $WORKSPACE_ID"
+# → granularity: "fine"
+```
+
+<Warning>
+**Send every lever you intend to keep.** There is no client-supplied version precondition yet. A client that read the profile before a newer client added `granularity`, `additional_instructions` or `business_relevance`, and writes back only the fields it knows, nulls the rest. Read, merge, write.
+</Warning>
+
+Two clients editing the same profile at once: the second write loses with `409`. Re-read the head and retry.
+
+## Step 6 — Delete a profile (versions stay)
+
+```bash
+curl -X DELETE "$SCIPOT_URL/profiles/$PROFILE_ID" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID"
+```
+
+`204`. From now on `profile_id` on an ingestion or a preview answers `422 PROFILE_NOT_FOUND`, and `GET /profiles/{profile_id}` is a `404`. But `GET /profiles/{profile_id}/versions/2` keeps answering `200` with the exact levers, for as long as any fact points at it. Deleting removes the head, not the history.
+
+## Listing
+
+```bash
+curl "$SCIPOT_URL/profiles?limit=50" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID"
+```
+
+```json
+{ "data": [ { "profile_id": "...", "name": "...", "version": 2, "..." : "..." } ], "next_cursor": null }
+```
+
+Oldest first by creation. `limit` is 1 to 200 (default 50); pass `next_cursor` back as `cursor` for the next page. A malformed cursor is a `400`.
+
+## Pattern: dual-axis extraction
+
+One document, two POTs, two profiles. The legal POT wants few, substantive facts about liability; the finance POT wants every number about money.
+
+```bash
+# Upload once
+DOCUMENT_ID=$(curl -s -X POST "$SCIPOT_URL/documents/upload" \
+  -H "X-API-Key: $SCIPOT_KEY" -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -F "file=@./msa-acme-2026.pdf" | jq -r .document.id)
+
+# Extract into the legal POT under the legal profile
+curl -X POST "$SCIPOT_URL/pots/$LEGAL_POT/extract-from-document" \
+  -H "X-API-Key: $SCIPOT_KEY" -H "X-Workspace-ID: $WORKSPACE_ID" -H "Content-Type: application/json" \
+  -d "{\"document_id\": \"$DOCUMENT_ID\", \"profile_id\": \"$LEGAL_PROFILE\"}"
+
+# Extract into the finance POT under the finance profile
+curl -X POST "$SCIPOT_URL/pots/$FINANCE_POT/extract-from-document" \
+  -H "X-API-Key: $SCIPOT_KEY" -H "X-Workspace-ID: $WORKSPACE_ID" -H "Content-Type: application/json" \
+  -d "{\"document_id\": \"$DOCUMENT_ID\", \"profile_id\": \"$FINANCE_PROFILE\"}"
+```
+
+Where `$LEGAL_PROFILE` is `granularity: "coarse"` with `business_relevance: "Liability caps, SLAs and termination rights."` and `$FINANCE_PROFILE` is `granularity: "fine"` with `business_relevance: "Payment terms, fees, discounts, invoicing schedules."`. Same source document, two fact sets, each fact carrying the profile version that produced it. The document's `extraction_history` shows both runs.
+
+## Failure modes
+
+The profile routes answer the structured envelope for their own errors and the `{"detail": ...}` shape for validation errors (see [Errors](/api-reference/errors)).
+
+| HTTP | `code` | When |
+|---|---|---|
+| `400` | | Malformed `cursor` on `GET /profiles`. |
+| `404` | | `GET`, `PUT` or `DELETE` on a profile that is missing or owned by another workspace; `GET .../versions/{n}` for a version that does not exist here. |
+| `409` | | A concurrent `PUT` or `DELETE` changed the head first. Re-read and retry. |
+| `422` | | Unknown field or lever (`pii_exclusion` included), unsupported `language`, a free-text lever that is blank, over its cap, contains control characters or SciPot's guidance delimiters, `version < 1`, a `name` with control characters. |
+| `422` | `PROFILE_NOT_FOUND` | `profile_id` on `/ingest`, `/extract-from-document` or `/extract/preview` is not a profile of this workspace. Nothing is enqueued or metered. `detail.profile_id` echoes the id. |
+
+## Not there yet
+
+So you do not go looking for it:
+
+- **No default profile per POT.** Every ingestion names its profile or runs without one.
+- **No profile on the job result.** `GET /jobs/{job_id}` does not echo the snapshot; the facts and `extraction_history` carry the pair.
+- **No versions list.** `GET /profiles/{profile_id}/versions/{n}` resolves one version; the head's `version` tells you how many exist.
+- **No name uniqueness** and **no per-workspace profile quota**.
+- **No `pii_exclusion` lever.** Sending it is a `422` until the PII gate ships.
+- **No `If-Match` on `PUT`.** See the warning under Step 5.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Extraction Preview" icon="flask" href="/guides/extraction-preview">
+    Try levers on a text, stored or inline, and read the facts before you ingest. Nothing persisted.
+  </Card>
+  <Card title="POT Score & Provenance" icon="scale-balanced" href="/trust-mechanics/pot-score-and-provenance">
+    Where `profile_id` and `profile_version` sit on the fact receipt.
+  </Card>
+  <Card title="Extraction with Context Attachments" icon="paperclip" href="/guides/extraction-with-context-attachments">
+    Per-document guidance. Composes with a profile on `/extract-from-document`.
+  </Card>
+  <Card title="API Surface" icon="map" href="/api-reference/api-surface#extraction-profiles">
+    The six profile endpoints and the preview route. Click into the auto-imported reference for schemas.
+  </Card>
+</CardGroup>

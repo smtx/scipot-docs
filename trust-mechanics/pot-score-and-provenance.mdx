@@ -171,9 +171,22 @@ provenance: {
   }>,
   extraction_method: string,           // e.g. "gpt-4o-mini chunk extraction v2"
   curated_by?: string,                 // Human Curator who promoted/approved
-  curated_at?: string                  // ISO timestamp of last curation
+  curated_at?: string,                 // ISO timestamp of last curation
+  profile_id?: string | null,          // extraction profile applied (API 0.5.0.0+)
+  profile_version?: number | null      // the immutable version of that profile
 }
 ```
+
+### Which profile produced this fact
+
+Since API `0.5.0.0`, a fact extracted under an [extraction profile](/guides/extraction-profiles) records the pair `profile_id` / `profile_version` on its provenance. The two are always set together:
+
+| `profile_id` | `profile_version` | Meaning |
+|---|---|---|
+| `null` | `null` | Extracted without a profile, or created outside the extraction pipeline (manual, contributed, synthesised). |
+| `"01J..."` | `n` (≥ 1) | Extracted under version `n` of that profile. `GET /profiles/{profile_id}/versions/{n}` returns the exact levers, and keeps doing so after the profile is edited or deleted. |
+
+This is the fourth thing provenance enables: **reproducibility**. The levers that shaped an extraction are part of the receipt, not a setting somebody changed since. The document's `extraction_history` records the same pair per run, so the answer survives the 30-day job record.
 
 Three things this enables that other memory layers can't:
 

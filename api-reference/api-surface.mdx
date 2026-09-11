@@ -61,15 +61,16 @@ Two ingestion modes: inline text (JSON body) and file upload (multipart, with au
 
 | Method | Path | What it does |
 |---|---|---|
-| POST | `/pots/{pot_id}/ingest` | Ingest raw text into a POT. Async, returns `job_id`. 100 KB inline cap. |
+| POST | `/pots/{pot_id}/ingest` | Ingest raw text into a POT. Async, returns `job_id`. 100 KB inline cap. Optional `profile_id`. |
 | POST | `/documents/upload` | Upload a file (PDF, DOCX, PPTX, XLSX, HTML, MD, TXT) — auto-converted to Markdown. Default 50 MB. |
-| POST | `/pots/{pot_id}/extract-from-document` | Re-extract facts from a stored document into a (different) POT. Accepts `context_attachment_ids` for explicit-scope extraction. |
+| POST | `/pots/{pot_id}/extract-from-document` | Re-extract facts from a stored document into a (different) POT. Accepts `context_attachment_ids` for explicit-scope extraction and `profile_id`. |
+| POST | `/pots/{pot_id}/extract/preview` | Run the extraction pipeline on a text **synchronously, persisting nothing**, and return the facts it would create. Stored (`profile_id`) or inline (`profile`) profile. 12 288 chars, 45 s. |
 | GET | `/documents` | List documents in the workspace (pagination via cursor). |
 | GET | `/documents/{document_id}` | Document metadata + full content + extraction history. |
 | PATCH | `/documents/{document_id}` | Update document metadata (tags, author, etc.). |
 | DELETE | `/documents/{document_id}` | Delete document + its derived facts. |
 
-Quickstart: [end-to-end ingest example →](/get-started/quickstart#step-3-ingest-a-document).
+Quickstart: [end-to-end ingest example →](/get-started/quickstart#step-3-ingest-a-document). Preview walkthrough: [Extraction Preview →](/guides/extraction-preview).
 
 ---
 
@@ -85,6 +86,23 @@ Non-extractable curator guidance that travels with a document into extraction. T
 | DELETE | `/documents/{document_id}/context-attachments/{attachment_id}` | Delete an attachment (S3 blob included). Past facts keep the id in `context_attachment_ids_used`. |
 
 Concept: [Context Attachments →](/trust-mechanics/context-attachments). How-to: [Extraction with Context Attachments →](/guides/extraction-with-context-attachments).
+
+---
+
+## Extraction profiles
+
+A named, versioned bundle of extraction levers (`language`, `scope_aware`, `granularity`, `additional_instructions`, `business_relevance`) owned by a workspace. Pass `profile_id` on an ingestion; every fact records `provenance.profile_id` / `profile_version`. Versions are immutable and survive edits and deletes.
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/profiles` | Create a profile (`version: 1`). Only `name` is required; unknown levers are `422`. |
+| GET | `/profiles` | List the workspace's profiles, oldest first. Cursor-paginated (`limit` 1–200, `cursor`). |
+| GET | `/profiles/{profile_id}` | Get the head of a profile. |
+| PUT | `/profiles/{profile_id}` | Full replacement of `name` + levers. Bumps `version`, writes an immutable version record. `409` on a concurrent write. |
+| DELETE | `/profiles/{profile_id}` | Remove the head. Version history is kept; facts keep resolving. |
+| GET | `/profiles/{profile_id}/versions/{version}` | Resolve the exact levers a fact's `provenance.profile_version` points at, after edit or delete. |
+
+Guide: [Extraction Profiles →](/guides/extraction-profiles). Concept: [POT Score & Provenance →](/trust-mechanics/pot-score-and-provenance#which-profile-produced-this-fact).
 
 ---
 
@@ -282,7 +300,6 @@ For when retrieval isn't returning what you expect.
 |---|---|---|
 | GET | `/pots/{pot_id}/vector-debug` | Inspect what's actually in the vector store for this POT. |
 | POST | `/pots/{pot_id}/vectors/reindex` | Re-index a POT's facts (re-embed everything). |
-| DELETE | `/pots/vectors/reset` | Nuclear option — reset all vectors (admin). |
 
 ---
 

@@ -183,25 +183,13 @@ When a limit is hit, the response is `429` with a `Retry-After` header (seconds)
 
 ## Rotation and revocation
 
-### Generate a new key
+<Warning>
+**Self-service key rotation and revocation is not available yet.** The `/integrators/{id}/api-keys` endpoints exist, but they are operator endpoints: they take the deployment's bootstrap key, not your `ik_live_` key, which they refuse with `401`. An integrator-side `/integrator/api-keys` (list and revoke your own keys) is planned; this page will be updated when it ships.
+</Warning>
 
-```bash
-curl -X POST "https://api.scipot.ai/integrators/$INTEGRATOR_ID/api-keys" \
-  -H "X-API-Key: $SCIPOT_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "ci-deploy-key"}'
-```
+Until then, to rotate or revoke a key, contact SciPot support with your integrator id and the key prefix (`ik_live_` plus the next four characters — never the full key). We issue the new key and revoke the old one; revocation takes effect within seconds.
 
-Response includes the new key value **once**. Save it; the server doesn't store it in plaintext.
-
-### Revoke a key
-
-```bash
-curl -X DELETE "https://api.scipot.ai/integrators/$INTEGRATOR_ID/api-keys/$KEY_ID" \
-  -H "X-API-Key: $SCIPOT_KEY"
-```
-
-If a key leaks, revoke it. Revocation propagates within seconds.
+A new key is shown **once**. Save it; the server doesn't store it in plaintext. If a key leaks, ask for its revocation immediately.
 
 ## Billing & upgrading (when you outgrow the free tier)
 

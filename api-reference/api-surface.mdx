@@ -238,11 +238,15 @@ Each call returns a Stripe-hosted URL. Redirect the user there; subscription sta
 
 ## API keys (rotation, revocation)
 
-| Method | Path | What it does |
-|---|---|---|
-| POST | `/integrators/{id}/api-keys` | Generate a new API key (shown once). |
-| GET | `/integrators/{id}/api-keys` | List your keys (values hidden, just metadata). |
-| DELETE | `/integrators/{id}/api-keys/{key_id}` | Revoke a key (effective within seconds). |
+<Warning>
+**Not self-service yet.** The routes below exist but are operator-only: they authenticate with the deployment's bootstrap key (`X-Bootstrap-Key`), and an `ik_live_` integrator key is refused with `401`. An integrator-side `/integrator/api-keys` (list and revoke your own keys) is planned and this table will be updated when it ships. Until then, request rotation or revocation from SciPot support (see [Rotation and revocation](/get-started/authentication#rotation-and-revocation)).
+</Warning>
+
+| Method | Path | Who can call it | What it does |
+|---|---|---|---|
+| POST | `/integrators/{id}/api-keys` | SciPot operators | Generate a new API key (shown once). |
+| GET | `/integrators/{id}/api-keys` | SciPot operators | List an integrator's keys (values hidden, just metadata). |
+| DELETE | `/integrators/{id}/api-keys/{key_id}` | SciPot operators | Revoke a key (effective within seconds). |
 
 ---
 

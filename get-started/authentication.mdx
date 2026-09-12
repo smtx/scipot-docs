@@ -161,9 +161,18 @@ Authentication errors follow the standard [error envelope](/api-reference/errors
 
 | Code | Cause | Fix |
 |---|---|---|
-| `401 AUTH_MISSING_KEY` | No `X-API-Key` header. | Add the header. Don't retry. |
-| `401 AUTH_INVALID_KEY` | Key not recognized or revoked. | Check the key. If it should be valid, the integrator may have rotated it via the dashboard. |
-| `401 AUTH_WORKSPACE_MISMATCH` | The workspace ID doesn't belong to this integrator. | Check `X-Workspace-ID`. |
+| `401 MISSING_API_KEY` | No `X-API-Key` header. | Add the header. Don't retry. |
+| `401 INVALID_API_KEY` | Key not recognized. | Check the key. If it should be valid, the integrator may have rotated it. |
+| `401 REVOKED_API_KEY` | The key was revoked. | Issue a new key. |
+| `401 EXPIRED_API_KEY` | The key passed its expiry date. | Issue a new key. |
+| `400 MISSING_WORKSPACE_ID` | No `X-Workspace-ID` header. | Add the header. |
+| `400 INVALID_WORKSPACE_ID` | `X-Workspace-ID` is not a valid UUID. | Send the workspace UUID as issued. |
+| `403 WORKSPACE_ACCESS_DENIED` | The workspace doesn't belong to this integrator. | Check `X-Workspace-ID`. |
+| `503 AUTH_UNAVAILABLE` | The deployment has auth on but no integrator store. Nothing you send fixes it. | Retry after `Retry-After` (30s); if it persists, it is on the operator. |
+
+These arrive as `{"detail": {"code", "message"}}`, not the `error` envelope the
+[Errors](/api-reference/errors) page describes — they are raised by middleware,
+before the request reaches a route.
 | `403 AUTH_FORBIDDEN` | Valid key, but lacking permission for this operation. | Some operations (Curator actions, bootstrap) require elevated roles. |
 | `429 RATE_LIMITED` | Per-integrator rate cap hit. | Honor `Retry-After`. |
 | `429 QUOTA_*` | Workspace quota exhausted. | Upgrade plan or wait for reset. |

@@ -4,7 +4,17 @@ sidebarTitle: "Errors"
 description: "Standard error envelope: code, message, cause, fix, docs_url, request_id, retryable. Full code list with the action to take for each."
 ---
 
-Every error response from the SciPot API uses the same envelope shape. If you handle this envelope once, you handle every error.
+Most error responses from the SciPot API use the envelope below. Two exceptions
+are worth wiring once, because they arrive before or outside it:
+
+- **Authentication errors** (see [Auth](#auth-never-retryable-except-auth-unavailable))
+  use `{"detail": {"code", "message"}}`. They are raised by middleware, before
+  your request reaches a route.
+- **A few framework-level errors** (a malformed request body, an unknown POT id)
+  use `{"detail": "<message>"}` with a plain string and no code.
+
+A reader that checks `error.code`, then `detail.code`, then falls back to the
+HTTP status handles all three.
 
 ## The envelope
 
@@ -120,14 +130,32 @@ def call_scipot(method, url, attempt=0, **kwargs):
 
 Codes are stable across versions. We never repurpose a code; we may add new ones.
 
-### Auth (`AUTH_*`) — never retryable
+### Auth — never retryable, except `AUTH_UNAVAILABLE`
+
+<Warning>
+  Authentication errors are raised before your request reaches a route, and they
+  use the **`detail` shape**, not the `error` envelope above:
+
+  ```json
+  { "detail": { "code": "MISSING_API_KEY", "message": "X-API-Key header is required" } }
+  ```
+
+  There is no `retryable`, `fix`, `docs_url` or `request_id` on these. Read
+  `detail.code` and treat every code in this table as terminal — except
+  `AUTH_UNAVAILABLE`, which is a server-side misconfiguration and carries
+  `Retry-After`.
+</Warning>
 
 | Code | HTTP | Cause | Fix |
 |---|---|---|---|
-| `AUTH_MISSING_KEY` | 401 | No `X-API-Key` header. | Add the header. |
-| `AUTH_INVALID_KEY` | 401 | Key not recognized, revoked, or expired. | Check the key. If it should be valid, the integrator may have rotated; check the dashboard. |
-| `AUTH_WORKSPACE_MISMATCH` | 401 | The `X-Workspace-ID` does not belong to this integrator. | Check the workspace ID. Different integrator? Different workspace. |
-| `AUTH_FORBIDDEN` | 403 | Valid key, but lacking permission for the operation (e.g., Curator action without Curator role). | Check the integrator's permissions. Some actions require elevated roles. |
+| `MISSING_API_KEY` | 401 | No `X-API-Key` header. | Add the header. |
+| `INVALID_API_KEY` | 401 | Key not recognized. | Check the key. If it should be valid, the integrator may have rotated it. |
+| `REVOKED_API_KEY` | 401 | The key was revoked. | Issue a new key. |
+| `EXPIRED_API_KEY` | 401 | The key passed its expiry date. | Issue a new key. |
+| `MISSING_WORKSPACE_ID` | 400 | No `X-Workspace-ID` header. | Add the header. |
+| `INVALID_WORKSPACE_ID` | 400 | `X-Workspace-ID` is not a valid UUID. | Send the workspace UUID as issued. |
+| `WORKSPACE_ACCESS_DENIED` | 403 | The workspace does not belong to this integrator, or a `workspace_id` in the URL disagrees with the header. | Check `X-Workspace-ID`. Never name a workspace in the path or query that differs from the header. |
+| `AUTH_UNAVAILABLE` | 503 | The deployment has authentication on but no integrator store to validate keys against. Nothing you send fixes it. | Retry after `Retry-After` (30s). If it persists, the operator has to fix the deployment — `/health` stays green in this state, so it may go unnoticed. |
 
 ### Rate limiting (`RATE_*`) — retryable, honor `Retry-After`
 

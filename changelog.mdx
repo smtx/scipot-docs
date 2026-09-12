@@ -18,6 +18,19 @@ _Changes in flight on `main` but not yet tagged._
 
 ---
 
+## 0.5.3.2 — 2026-09-12
+
+### Security
+
+- **A deployment with real tenants refuses to boot with authentication disabled.** Operator-facing: the API now refuses to start when `AUTH_ENABLED=false` meets any signal that the deployment holds real tenant data. With auth off, workspace isolation rested on the caller's own `X-Workspace-ID` header, so the ownership checks shipped in `0.5.3.1` compared that header against itself. Nothing changes for integrators; `api.scipot.ai` has always run with authentication on.
+- **New error code `AUTH_UNAVAILABLE` (503).** Returned when a deployment has authentication on but no store to validate keys against. It carries `Retry-After: 30`. Only an operator can clear it, and it is unreachable on a correctly configured deployment. See [Errors](/api-reference/errors#auth-never-retryable-except-auth-unavailable).
+
+### Fixed
+
+- **The auth error codes on this site were wrong.** [Errors](/api-reference/errors) and [Authentication](/get-started/authentication) listed `AUTH_MISSING_KEY`, `AUTH_INVALID_KEY` and `AUTH_WORKSPACE_MISMATCH`, none of which the API has ever emitted, and showed them in the `error` envelope. The real codes are `MISSING_API_KEY`, `INVALID_API_KEY`, `REVOKED_API_KEY`, `EXPIRED_API_KEY` (401), `MISSING_WORKSPACE_ID` / `INVALID_WORKSPACE_ID` (400) and `WORKSPACE_ACCESS_DENIED` (403), and they arrive as `{"detail": {"code", "message"}}` because they are raised by middleware before a request reaches a route. Both pages now document the codes the API actually sends, and the Errors page names the two shapes that sit outside the `error` envelope. `AUTH_FORBIDDEN` (403) was removed too: it appears nowhere in the API, and the real 403 is `WORKSPACE_ACCESS_DENIED`. If you routed on any of the four old names, nothing matched — check your error handling.
+
+---
+
 ## 0.5.3.1 — 2026-09-11
 
 ### Security

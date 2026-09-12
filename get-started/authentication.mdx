@@ -173,7 +173,6 @@ Authentication errors follow the standard [error envelope](/api-reference/errors
 These arrive as `{"detail": {"code", "message"}}`, not the `error` envelope the
 [Errors](/api-reference/errors) page describes — they are raised by middleware,
 before the request reaches a route.
-| `403 AUTH_FORBIDDEN` | Valid key, but lacking permission for this operation. | Some operations (Curator actions, bootstrap) require elevated roles. |
 | `429 RATE_LIMITED` | Per-integrator rate cap hit. | Honor `Retry-After`. |
 | `429 QUOTA_*` | Workspace quota exhausted. | Upgrade plan or wait for reset. |
 

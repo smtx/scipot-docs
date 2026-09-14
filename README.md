@@ -24,15 +24,15 @@ The API itself is served from `https://api.scipot.ai` (interactive Swagger at `/
 ## Local development
 
 ```bash
-# Install Mintlify CLI
-npm i -g mintlify
-
-# Preview locally
-mintlify dev
+# Preview locally (Node 22 LTS; the CLI does not support Node 25+)
+npx mint@latest dev
 # Opens http://localhost:3000 with live reload
+
+# The check CI runs on every PR
+npx mint@latest broken-links
 ```
 
-`mintlify dev` reads `mint.json` and renders every `.mdx` file under the repo. Edit, save, refresh — the usual loop.
+`npx mint@latest dev` reads `docs.json` and renders every `.mdx` file under the repo. Edit, save, refresh — the usual loop.
 
 ---
 
@@ -42,7 +42,7 @@ mintlify dev
 - **Format:** MDX (markdown + JSX components)
 - **API reference source:** auto-imported from `https://api.scipot.ai/openapi.json`
 - **Domain:** `docs.scipot.ai` (CNAME → Mintlify)
-- **Analytics:** PostHog (set the key in `mint.json` before deploy)
+- **Analytics:** PostHog (set the key in `docs.json` before deploy)
 
 ---
 
@@ -50,14 +50,14 @@ mintlify dev
 
 ```
 scipot-docs/
-├── mint.json                       # Mintlify config (nav, theme, colors, OpenAPI source)
+├── docs.json                       # Mintlify config (nav, theme, colors, OpenAPI source)
 ├── welcome.mdx                     # Hero / Welcome
 ├── big-picture/                    # Why / How different / When to use
 ├── get-started/                    # Quickstart, Authentication
 ├── trust-mechanics/                # POT Score & Provenance, Constitution, Curators, Contradictions
 ├── comparisons/                    # vs Mem0 / Zep / OpenAI File Search
 ├── api-reference/                  # Introduction, Errors, Versioning
-├── guides/                         # (coming soon — empty dir for now)
+├── guides/                         # Constitution, context attachments, extraction profiles, preview, PII
 ├── logo/                           # Brand assets (light/dark/favicon)
 └── images/                         # Diagrams, OG images
 ```
@@ -89,7 +89,7 @@ These mirror [scipot.ai](https://scipot.ai) so the docs feel continuous with the
 2. Connect this GitHub repo. Mintlify watches `main` and auto-deploys on push.
 3. Add custom domain `docs.scipot.ai` in the Mintlify dashboard.
 4. In Cloudflare DNS: add a CNAME `docs` → the target Mintlify provides. Make sure orange-cloud is **OFF** (Mintlify handles TLS).
-5. Replace `REPLACE_WITH_POSTHOG_KEY` in `mint.json` with the production PostHog project key.
+5. Replace `REPLACE_WITH_POSTHOG_KEY` in `docs.json` with the production PostHog project key.
 
 ---
 

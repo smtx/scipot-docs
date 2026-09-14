@@ -1,0 +1,290 @@
+---
+title: "Fact-level PII"
+sidebarTitle: "PII"
+description: "Personal data is masked inside the facts, not in the document. The source stays verbatim, the fact survives without the person, and every run reports what it masked, how well it could detect, and what it cost."
+---
+
+SciPot filters PII at **fact** level. `Juan Pérez (juan@acme.com) approved the 12-month liability cap` is stored as `{NAME:7f3a9c1d2e4b} ({EMAIL}) approved the 12-month liability cap`. The claim survives, the person does not. The uploaded document is kept verbatim either way: masking a document would break provenance, and you would have nothing to show a curator who disputes a fact.
+
+The layer runs inside the extraction pipeline, right after the model has produced the facts and **before** deduplication and persistence. Nothing unmasked reaches the fact store, the vector index or an edge.
+
+Available since API `0.5.4.0`. It is a lever of an extraction profile, so read [Extraction Profiles](/guides/extraction-profiles) first.
+
+## What gets scanned
+
+Every string the extraction produced for a fact, plus the document-derived strings pinned to it:
+
+`content`, `title`, `scope_reason`, `classification.domain`, `classification.subdomain`, `classification.entity_mentions`, `classification.tags`, `location.source_text` (the verbatim excerpt), `location.section_path` and `location.sheet_name`.
+
+Two things it does not touch: the **document** (stored as you sent it) and the **POT Score** (it is computed from provenance, not from text, so masking never moves a score).
+
+## Three switches, in this order
+
+| Switch | Who sets it | What it decides |
+|---|---|---|
+| **Deployment** | The operator, in environment (`PII_DETECTOR`, `PII_DEFAULT_MODE`, `PII_ENTITLEMENT`, `PII_FLOOR_ENABLED`) | Which detector runs, what a profile that says nothing about PII does, and whether entitlement is per workspace or granted to all. |
+| **Workspace entitlement** | You, the integrator: `PATCH /integrator/workspaces/{workspace_id}/features` with `{"pii": true}` | Whether a profile of that workspace may run any mode other than `off`. Without it: `403 PII_NOT_ENTITLED`. |
+| **Profile lever** | Per profile, per ingestion: `pii` on `POST /profiles` | The mode and the entity types for the runs under that profile. |
+
+The entitlement is checked at admission (creating or updating a profile, an inline preview profile) **and** again at enqueue, against the lever the run will effectively apply. Revoking `features.pii` does not rewrite existing profiles; their next ingestion is refused with `403` until `pii.mode` is `off`.
+
+<Note>
+**On `api.scipot.ai` today:** `PII_DETECTOR=regex`, `PII_DEFAULT_MODE=off`, `PII_ENTITLEMENT=workspace`. The local detector finds format-detectable identifiers only, so an entitled workspace on the SaaS gets structured types masked and `coverage: "partial"` whenever it also asks for contextual ones. A deployment configured with `bedrock-guardrails` (BYOC) detects names, addresses, ages and usernames as well.
+</Note>
+
+## The floor runs even with the layer off
+
+Secrets and payment data are masked on every ingestion, whatever the profile says: `PASSWORD`, `PIN`, `CREDIT_DEBIT_CARD_NUMBER`, `CREDIT_DEBIT_CARD_CVV`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`. No business fact needs a CVV.
+
+The floor runs on the local regex detector only — zero external calls, zero units billed, no entitlement needed. Four of the six types (`PASSWORD`, `PIN`, `CREDIT_DEBIT_CARD_CVV`, `AWS_SECRET_KEY`) are found only when labelled in the text (`password: hunter2`), so a floor run honestly declares `coverage: "partial"`, never `"full"`. An operator can switch the floor off with `PII_FLOOR_ENABLED=false`; `api.scipot.ai` runs it on.
+
+## The lever
+
+```json
+{
+  "name": "Support tickets",
+  "granularity": "standard",
+  "pii": {
+    "mode": "anonymize",
+    "contextual_entities": ["NAME", "ADDRESS"],
+    "structured_entities": null,
+    "reversible": false
+  }
+}
+```
+
+| Field | Type | What it does |
+|---|---|---|
+| `mode` | `"anonymize"` / `"block"` / `"off"` | `anonymize` keeps every fact and masks the PII in it. `block` drops any fact that carries PII. `off` applies the floor only. Defaults to `anonymize` when the `pii` object is sent without it. |
+| `contextual_entities` | list or `null` | Which context-detected types to act on: `NAME`, `ADDRESS`, `AGE`, `USERNAME`. `null` = all of them; `[]` = none, structured types only. A B2B contact's name is sometimes the knowledge, which is why this is switchable one type at a time. |
+| `structured_entities` | list or `null` | Which format-detected types to act on. `null` = all of them. Lets a workspace whose facts carry 9-digit revenue figures switch `PHONE` off without losing the rest. |
+| `reversible` | `false` | Reserved for the vault that will let an authorised role reverse a pseudonym. Only `false` is accepted today; `true` is a `422`. |
+
+The floor types stay in scope whatever the two lists say.
+
+<Warning>
+**Three spellings, three meanings.** `"pii": {"mode": "off"}` switches the layer off. `"pii": null` (or omitting it) **follows the deployment default** — `off` on `api.scipot.ai`, but `anonymize` on a deployment configured that way. `"pii": {}` resolves to `anonymize`. A "disable PII" toggle in your product must send `{"mode": "off"}`; sending `null` leaves the layer on wherever the default is on.
+</Warning>
+
+### Entity types
+
+**Contextual** — need a language model, and are the ones you can switch off individually:
+
+`NAME`, `ADDRESS`, `AGE`, `USERNAME`
+
+**Structured** — format-detectable and language-independent:
+
+| Found by the local detector | Needs a managed detector |
+|---|---|
+| `EMAIL`, `PHONE`, `CREDIT_DEBIT_CARD_NUMBER` (Luhn), `CREDIT_DEBIT_CARD_CVV`, `PIN`, `PASSWORD`, `INTERNATIONAL_BANK_ACCOUNT_NUMBER` (mod-97), `IP_ADDRESS`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY`, `ES_DNI`, `ES_NIE`, `ES_NIF`, `ES_NSS` | `CREDIT_DEBIT_CARD_EXPIRY`, `LICENSE_PLATE`, `VEHICLE_IDENTIFICATION_NUMBER`, `DRIVER_ID` |
+
+The Spanish national identifiers are regex-only (with their check letters verified): no managed detector ships them, so SciPot's own patterns run alongside the managed one on every call.
+
+### Placeholders and pseudonyms
+
+A structured entity is masked flat: `{EMAIL}`, `{ES_DNI}`. There is no business value in telling two IBANs apart.
+
+A contextual entity gets a **stable per-workspace pseudonym**: `{NAME:7f3a9c1d2e4b}`, twelve hex characters of an HMAC of the normalised value under a key derived for that workspace. The same person reads as the same token across every fact and document of the workspace, and never as that token in another workspace, so co-reference and edges keep working and two different people never collapse into one `{NAME}` — which is how flat masking manufactures contradictions.
+
+Nothing stores the value. The token is not reversible today.
+
+## Try it — `POST /pii/preview`
+
+The playground runs the real detector, pseudonymizer and policy on up to 50 texts and returns what an ingestion would store. Nothing is persisted and no text is logged.
+
+```bash
+curl -X POST "$SCIPOT_URL/pii/preview" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "texts": [
+      "Contact Juan Pérez at juan.perez@acme.com or +34 600 123 456 about invoice ES9121000418450200051332.",
+      "The liability cap is 12 months of fees."
+    ],
+    "pii": { "mode": "anonymize" },
+    "language": "es"
+  }'
+```
+
+```json
+{
+  "results": [
+    {
+      "anonymized": "Contact Juan Pérez at {EMAIL} or {PHONE} about invoice {INTERNATIONAL_BANK_ACCOUNT_NUMBER}.",
+      "entities": [
+        { "type": "EMAIL", "token": "{EMAIL}", "start": 22, "end": 41, "source": "regex" },
+        { "type": "PHONE", "token": "{PHONE}", "start": 45, "end": 60, "source": "regex" },
+        { "type": "INTERNATIONAL_BANK_ACCOUNT_NUMBER", "token": "{INTERNATIONAL_BANK_ACCOUNT_NUMBER}", "start": 75, "end": 99, "source": "regex" }
+      ],
+      "coverage": "partial",
+      "blocked": false
+    },
+    {
+      "anonymized": "The liability cap is 12 months of fees.",
+      "entities": [],
+      "coverage": "partial",
+      "blocked": false
+    }
+  ],
+  "summary": {
+    "mode": "anonymize",
+    "provider": "regex",
+    "provider_version": "regex-2026-09-13.2",
+    "entitlement": "premium",
+    "facts_scanned": 2,
+    "facts_anonymized": 1,
+    "facts_blocked": 0,
+    "by_type": { "EMAIL": 1, "INTERNATIONAL_BANK_ACCOUNT_NUMBER": 1, "PHONE": 1 },
+    "coverage": "partial",
+    "language": "es",
+    "units": 0,
+    "free_units": 0,
+    "chars": 139,
+    "processing_ms": 3
+  },
+  "persisted": false,
+  "notice": null,
+  "limits": { "max_texts": 50, "max_chars": 20000, "requests_per_minute": 60, "max_concurrent_per_process": 8 }
+}
+```
+
+`Juan Pérez` is still there because this response came from the local detector, which does not do contextual types — and it says so with `coverage: "partial"` rather than implying the name was checked and cleared.
+
+| Request field | Notes |
+|---|---|
+| `texts` | Required, 1 to **50** entries, one fact each typically. **20 000 characters in total** (`413 PII_PREVIEW_CONTENT_TOO_LARGE`). The cap is enforced by the route, not declared in OpenAPI, so a generated client does not pre-empt it with a `422`. |
+| `pii` | The lever, inline. Same object as the profile's. |
+| `profile_id` | A stored profile of this workspace whose `pii` lever to apply. Mutually exclusive with `pii` (`422`); unknown id is `422 PROFILE_NOT_FOUND`. |
+| `language` | ISO 639-1, one of the [extraction languages](/guides/extraction-profiles#the-levers) (`422` otherwise). `null` runs an es/en heuristic. |
+| `include_spans` | Default `true`. Set `false` when you only need the masked text. |
+
+Omit both `pii` and `profile_id` to run the deployment default.
+
+| Response field | Meaning |
+|---|---|
+| `results[].anonymized` | The text as it would be stored. |
+| `results[].entities` | One entry per masked value, with the placeholder that replaced it and its offsets **in the original text** you sent. Never the value itself. Empty when `include_spans` was `false`. |
+| `results[].blocked` | `block` mode only: this text carries PII, so an ingestion would drop that fact. The masked text is still returned so you can see why. |
+| `summary` | The whole run: mode, detector (`provider`, `provider_version`), `entitlement`, counts, `by_type`, `coverage`, `units` and `chars`. |
+| `persisted` | Always `false`. |
+| `notice` | Set when the workspace is not entitled: the playground ran the **floor only** and says so, rather than pretending the premium ran. |
+| `limits` | The ceilings this call ran under, so you do not hard-code them. |
+
+<Note>
+**Offsets are Unicode code points**, not UTF-16 code units. In JavaScript, `text.slice(start, end)` is wrong as soon as an emoji or any astral character sits before the span. Convert with `Array.from(text)` before highlighting.
+</Note>
+
+## See it on a whole extraction
+
+`POST /pots/{pot_id}/extract/preview` takes the same lever inside its inline `profile` (or via `profile_id`) and adds a side-by-side view:
+
+```bash
+curl -X POST "$SCIPOT_URL/pots/$POT_ID/extract/preview" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Juan Pérez (juan.perez@acme.com) approved the 12-month liability cap on 3 March.",
+    "profile": { "name": "Support (draft)", "pii": { "mode": "anonymize" } },
+    "include_unmasked": true
+  }'
+```
+
+Each fact carries a `pii` block (`applied`, `mode`, `entities` by type, `coverage`, `language`), the run carries `pii_applied` with the same summary shape as above, and `include_unmasked: true` adds `facts[].pii.unmasked_content` — the fact before masking, from the same single extraction. It is never persisted and never returned outside a preview.
+
+## Ingesting under the lever
+
+Pass the `profile_id` as usual. On the job result:
+
+```json
+{
+  "result": {
+    "facts_created": 11,
+    "pii": {
+      "mode": "anonymize",
+      "provider": "bedrock-guardrails",
+      "entitlement": "premium",
+      "facts_scanned": 12,
+      "facts_anonymized": 4,
+      "facts_blocked": 0,
+      "by_type": { "NAME": 5, "EMAIL": 2 },
+      "coverage": "full",
+      "language": "es",
+      "units": 3,
+      "chars": 2480
+    }
+  }
+}
+```
+
+Each stored fact keeps its own `pii` block (counts and states, never values), so a curator reading a fact can see that two names were masked in it and under which mode.
+
+In `block` mode a fact that carries PII is **not created**. It does not appear in `extraction_audit.discarded_facts` either — that audit is about extraction and deduplication. The only record is `pii.facts_blocked` on the run.
+
+<Warning>
+**A detector that cannot answer fails the job.** `PII_DETECTOR_UNAVAILABLE` is raised before anything is deduplicated or persisted, and the preview answers `503` with the same code. The layer never falls back to "store it unmasked".
+</Warning>
+
+## Coverage and languages
+
+`coverage` is a declared property of every run and of every fact, and the run takes the weakest value of its parts (`none` < `partial` < `full`):
+
+- `full` — everything the lever asked for could be evaluated.
+- `partial` — something could not. Asking a structured-only detector for contextual types, or running contextual detection in a language the managed detector does not promise.
+- `none` — nothing was evaluated.
+
+The managed detector (Bedrock Guardrails) promises contextual detection in: `ar`, `zh`, `nl`, `en`, `fi`, `fr`, `de`, `hi`, `it`, `ja`, `ko`, `no`, `pl`, `pt`, `es`, `sv`, `vi`. Catalan is not on that list, so a `ca` run is declared `partial` for the contextual types even when the detector does mask them in practice. An unsupported language degrades the coverage; it never fails the job.
+
+## What it costs
+
+The PII layer is metered in **text units** (1 unit = 1 000 characters), not tokens, on its own usage events:
+
+| `operation` | Where |
+|---|---|
+| `pii_anonymization` | An ingestion job. |
+| `pii_anonymization_preview` | An extraction preview. |
+| `pii_preview` | The playground. |
+
+Each event carries `entitlement` (`premium` or `floor`). The floor and any run on the local detector cost **0 units** — they never leave the process. `units` and `chars` on every run summary tell you what a call consumed before you read a bill.
+
+## Failure modes
+
+| HTTP | `code` | Body | When |
+|---|---|---|---|
+| `403` | `PII_NOT_ENTITLED` | `error` | A profile (stored or inline) asks for a mode other than `off` in a workspace without `features.pii`. Raised on `POST`/`PUT /profiles`, on enqueue for `/ingest` and `/extract-from-document`, and on the extraction preview. Never a silent downgrade. |
+| `413` | `PII_PREVIEW_CONTENT_TOO_LARGE` | `error` | `texts` totals more than 20 000 characters. |
+| `422` | `PROFILE_NOT_FOUND`, validation | `detail` | Unknown profile, both `pii` and `profile_id`, unsupported `language`, unknown keys in the lever, `reversible: true`. |
+| `429` | `RATE_LIMIT_EXCEEDED` | `detail` | More than **60 playground calls per minute** per integrator. `detail.scope` is `pii_preview`. |
+| `429` | `PII_PREVIEW_CONCURRENCY_LIMIT` | `error` + `Retry-After: 2` | A ninth playground call in flight on one API process (**8 concurrent per process**, per replica, not per integrator). |
+| `503` | `PII_DETECTOR_UNAVAILABLE` | `error` | The detector could not evaluate the texts. `retryable` says whether the failure was transient; when it is not, only the operator can fix it. |
+| `503` | `PII_ENTITLEMENT_UNAVAILABLE` | `error`, retryable | The workspace's features could not be read. An unknown verdict is never downgraded to "not entitled", nor upgraded. |
+
+Two body shapes on one route, as on the extraction preview: gates shared with the rest of the API answer `{"detail": ...}`, the route's own gates answer the [`{"error": {...}}` envelope](/api-reference/errors).
+
+## Not there yet
+
+So you do not go looking for it:
+
+- **No reversible vault.** `reversible: true` is a `422`. Pseudonyms are stable, not undoable.
+- **No contextual detection on `api.scipot.ai`.** The SaaS runs the local detector today; names and addresses need a deployment configured with a managed detector.
+- **No PII default per POT.** The lever lives on the profile; a POT has no PII setting of its own.
+- **Blocked facts are counted, not listed.** `pii.facts_blocked` tells you how many; nothing tells you which.
+- **No re-masking of existing facts.** The layer runs at extraction time. Facts ingested before you switched it on stay as they were.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Extraction Profiles" icon="sliders" href="/guides/extraction-profiles">
+    Where the `pii` lever lives, how versions keep resolving, and the other levers.
+  </Card>
+  <Card title="Extraction Preview" icon="flask" href="/guides/extraction-preview">
+    Run the whole pipeline on a text and read the facts, masked, before you ingest.
+  </Card>
+  <Card title="Errors" icon="triangle-exclamation" href="/api-reference/errors#fact-level-pii">
+    The PII codes in the full error reference.
+  </Card>
+  <Card title="API Surface" icon="map" href="/api-reference/api-surface#pii">
+    The playground route and the workspace features endpoint.
+  </Card>
+</CardGroup>

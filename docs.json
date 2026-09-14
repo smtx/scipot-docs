@@ -42,7 +42,8 @@
               "guides/writing-a-constitution",
               "guides/extraction-with-context-attachments",
               "guides/extraction-profiles",
-              "guides/extraction-preview"
+              "guides/extraction-preview",
+              "guides/pii"
             ]
           },
           {

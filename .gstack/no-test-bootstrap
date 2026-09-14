@@ -1,0 +1,4 @@
+Content-only Mintlify repo: no application code, so no unit-test framework.
+The equivalent check is `npx mint@latest broken-links` (page compilation +
+internal links), enforced on every PR by .github/workflows/docs-check.yml.
+Decided 2026-09-14 (Seb, via /ship D1).

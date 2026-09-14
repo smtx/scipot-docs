@@ -4,7 +4,7 @@ sidebarTitle: "Changelog"
 description: "Every user-visible change to the SciPot API, in reverse chronological order. Format follows Keep a Changelog; the project follows Semantic Versioning."
 ---
 
-This page mirrors the canonical [CHANGELOG.md](https://github.com/smtx/scipot-docs/blob/main/changelog.mdx) and is updated on every release. The current API version is reported in the `X-API-Version` response header on every authenticated request.
+This page is the public record of the API's releases and is updated on every release. The current API version is reported in the `X-API-Version` response header on every authenticated request.
 
 <Note>
 **Pre-1.0 versioning.** While the API is below `1.0.0`, minor version bumps (`0.x.0`) MAY include breaking changes. We always document them here, but consumers should pin to a known-good minor version. Once the API stabilises, we'll cut `1.0.0` and adopt strict SemVer (breaking changes only in major bumps). See [Versioning](/api-reference/versioning) for the full policy.
@@ -15,6 +15,39 @@ This page mirrors the canonical [CHANGELOG.md](https://github.com/smtx/scipot-do
 ## Unreleased
 
 _Changes in flight on `main` but not yet tagged._
+
+---
+
+## 0.5.4.1 — 2026-09-13
+
+No API change. A fix to the repository's own manual-test script for the PII layer (`--env-file` handling); nothing an integrator calls behaves differently.
+
+---
+
+## 0.5.4.0 — 2026-09-13
+
+**Fact-level PII.** Personal data is masked inside the facts, not in the document: the source stays verbatim and the claim survives without the person. See [Fact-level PII](/guides/pii).
+
+### Added
+
+- **The PII layer runs inside the extraction pipeline**, right after the facts are built and **before** deduplication and persistence, so nothing unmasked reaches the fact store, the vector index or an edge. It scans every string the extraction produced for a fact (`content`, `title`, `scope_reason`, `classification.domain` / `subdomain` / `entity_mentions` / `tags`) plus the document-derived strings pinned to it (`location.source_text`, `section_path`, `sheet_name`). Structured entities are masked flat (`{EMAIL}`, `{ES_DNI}`); contextual ones (`NAME`, `ADDRESS`, `AGE`, `USERNAME`) get a **stable per-workspace pseudonym** (`{NAME:7f3a9c1d2e4b}`), so the same person reads the same across facts and documents and edges keep working. POT Score is untouched: it depends on provenance, not on text.
+- **New profile lever `pii`** — `{mode: "anonymize" | "block" | "off", contextual_entities, structured_entities, reversible}` — on `POST /profiles`, `PUT /profiles/{id}`, the version record, the job snapshot and the inline preview profile. `null` follows the deployment default, like `scope_aware` follows its flag. `reversible` is reserved: only `false` is accepted. The `pii_exclusion` lever named in the `0.5.1.0` notes was never added; `pii` is the lever, and sending it is no longer a `422`.
+- **Premium entitlement, never a silent downgrade.** Switching the layer on needs the workspace's `features.pii`, granted with the new **`PATCH /integrator/workspaces/{workspace_id}/features`**. Without it: `403 PII_NOT_ENTITLED`, raised when the profile is created or updated and again at enqueue, against the lever the run would effectively apply. A features read that fails is `503 PII_ENTITLEMENT_UNAVAILABLE`, not a pass.
+- **A floor that runs with the layer off.** Passwords, PINs, card numbers, CVVs and AWS keys are masked on every ingestion, on the local detector only — no external call, no units billed, no entitlement needed. Operators can disable it; `api.scipot.ai` runs it on.
+- **`POST /pii/preview`** — the playground. Up to 50 texts and 20 000 characters, a `pii` lever inline or from a stored profile, and per text: the anonymised output, the masked entities with their offsets **in the original text**, the coverage, and `blocked` in `block` mode. Plus a run summary with the text units it cost. **Nothing is stored and no text is logged.** An unentitled workspace gets the floor and a `notice` saying so instead of a `403`. Limits: `413 PII_PREVIEW_CONTENT_TOO_LARGE`, 60/min per integrator (`RATE_LIMIT_EXCEEDED`, `detail.scope = pii_preview`), 8 concurrent per API process (`429 PII_PREVIEW_CONCURRENCY_LIMIT`, `Retry-After: 2`), all echoed in `limits`.
+- **Extraction preview:** `include_unmasked: true` returns `facts[].pii.unmasked_content` next to the masked fact — one extraction, a side-by-side view, never persisted. `pii_applied` summarises the run and `profile_applied.pii` reports the lever.
+- **Per-fact `pii` block** on every fact (`applied`, `mode`, entity counts by type, `coverage`, `language` — counts and states, never values), and the same run summary on `JobResult.pii` and on the document's extraction record.
+- **Declared coverage.** `full`, `partial` or `none` on every run and every fact, the run taking the weakest value of its parts. Asking a structured-only detector for contextual types, or running contextual detection in a language the detector does not promise (Catalan, today), is `partial` — declared, never silent. An unsupported language degrades coverage; it never fails the job.
+- **Metering in text units, not tokens.** 1 unit = 1 000 characters, on operations `pii_anonymization` (ingestion), `pii_anonymization_preview` (extraction preview) and `pii_preview` (playground), each tagged `premium` or `floor`. The local detector costs 0 units.
+
+### Changed
+
+- **A detector that cannot answer fails the run.** `PII_DETECTOR_UNAVAILABLE` (`503` on the previews, a job failure on ingestion) is raised before anything is deduplicated or persisted. The layer never falls back to storing unmasked facts.
+
+### Notes for integrators
+
+- `api.scipot.ai` runs the local detector with the layer off by default and entitlement per workspace, so **nothing changes for an existing integration** beyond the floor. Names and addresses need a deployment configured with a managed detector.
+- A "disable PII" toggle must send `{"mode": "off"}`. Sending `null` inherits the deployment default, which is on for some deployments.
 
 ---
 
@@ -78,7 +111,7 @@ _Changes in flight on `main` but not yet tagged._
 
 ### Added
 
-- **Extraction-profile prompt levers.** A profile now carries three more optional levers: `granularity` (`fine` / `standard` / `coarse`), `additional_instructions` (free text, ≤ 1000 chars) and `business_relevance` (free text, ≤ 500 chars). They ride in the job's snapshot like the `0.5.0.0` levers and shape every chunk's extraction; the base prompt's own rules (output format, language, scope, atomicity) take precedence over the free text. Free text is validated at admission and again by the worker: normalised line endings, stripped, `422` when blank, containing control characters, or containing SciPot's guidance delimiters. The levers apply to the LLM extraction only; the deterministic table extractor is unaffected. `pii_exclusion` remains a `422` until the PII gate ships. See [the levers](/guides/extraction-profiles#the-levers).
+- **Extraction-profile prompt levers.** A profile now carries three more optional levers: `granularity` (`fine` / `standard` / `coarse`), `additional_instructions` (free text, ≤ 1000 chars) and `business_relevance` (free text, ≤ 500 chars). They ride in the job's snapshot like the `0.5.0.0` levers and shape every chunk's extraction; the base prompt's own rules (output format, language, scope, atomicity) take precedence over the free text. Free text is validated at admission and again by the worker: normalised line endings, stripped, `422` when blank, containing control characters, or containing SciPot's guidance delimiters. The levers apply to the LLM extraction only; the deterministic table extractor is unaffected. `pii_exclusion` is a `422`; the PII layer shipped in `0.5.4.0` under a different name, the `pii` lever. See [the levers](/guides/extraction-profiles#the-levers).
 - **Expert-endorsed contributions.** `POST /pots/{pot_id}/facts/contribute` accepts `endorsed: bool`; `true` floors the contributed facts at VERIFIED, for a domain expert directly answering a knowledge gap.
 - **Knowledge-gap loop.** `POST /pots/{pot_id}/knowledge-gaps`, `GET /knowledge-gaps`, `GET /knowledge-gaps/{gap_id}`, `POST /knowledge-gaps/{gap_id}/transitions` (`open → routed → ingested → resolved`, with `expected_from` as a compare-and-set guard). `POST /pots/{pot_id}/synthesize` and `/query` return `is_knowledge_gap` and a versioned `gap_signal` (v2: relevance-aware).
 

@@ -4,13 +4,13 @@ This file gives AI coding assistants (Claude Code, Cursor, etc.) the context the
 
 ## Repo purpose
 
-This is **scipot-docs** — the public developer documentation for SciPot, published at **docs.scipot.ai** via Mintlify (hosted, free tier). The API itself lives in `scipot-core` (separate repo). Per-endpoint reference is auto-imported from `https://api.scipot.ai/openapi.json`; this repo contributes the surrounding meta pages (Welcome, Big Picture, Get Started, Trust Mechanics, Comparisons, Api Surface, Errors, Versioning) plus the Mintlify config.
+This is **scipot-docs** — the public developer documentation for SciPot, published at **docs.scipot.ai** via Mintlify (hosted, free tier). The API itself lives in `scipot-core` (separate repo). Per-endpoint reference is auto-imported from `https://api.scipot.ai/openapi.json`; this repo contributes the surrounding meta pages (Welcome, Big Picture, Get Started, Guides, Trust Mechanics, Comparisons, API Surface, Errors, Versioning, Changelog) plus the Mintlify config.
 
 Sister surface: **scipot.ai** (the marketing landing) lives in the `scipot-landing` repo and shares the same design system.
 
 ## Design system — read first
 
-**Before editing any user-facing surface (MDX pages, `mint.json`, copy, layout), read [DESIGN.md](DESIGN.md).**
+**Before editing any user-facing surface (MDX pages, `docs.json`, copy, layout), read [DESIGN.md](DESIGN.md).**
 
 DESIGN.md is the source of truth for:
 
@@ -31,33 +31,41 @@ Any change that deviates from DESIGN.md needs an explicit decision in the user's
 - **Format:** MDX (markdown + JSX components like `<CardGroup>`, `<Card>`, `<Steps>`, `<Tabs>`)
 - **Reference source:** `https://api.scipot.ai/openapi.json` (auto-imported by Mintlify)
 - **Domain:** `docs.scipot.ai` via CNAME
-- **Analytics:** PostHog (key in `mint.json`)
+- **Analytics:** PostHog (key in `docs.json`)
 
 ## Local development
 
 ```bash
 # Node 22 LTS or 20 LTS required (Node 25+ is NOT supported by Mintlify CLI)
 nvm use 22
-mintlify dev
+npx mint@latest dev
 # http://localhost:3000
+
+# The check CI runs on every PR: page compilation + internal links.
+npx mint@latest broken-links
 ```
+
+There is no unit-test framework here — the repo is MDX and one config file.
+`broken-links` is the equivalent gate, enforced by `.github/workflows/docs-check.yml`
+because merging to `main` deploys straight to docs.scipot.ai.
 
 ## File structure
 
 ```
-mint.json                       # Mintlify config — nav, theme colors, OpenAPI source, anchors
+docs.json                       # Mintlify config — nav, theme colors, OpenAPI source, anchors
 welcome.mdx                     # Hero / Welcome
 big-picture/                    # Why / How different / When to use SciPot
 get-started/                    # Quickstart + Authentication
 trust-mechanics/                # POT Score & Provenance / Constitution / Curators / Contradictions
 comparisons/                    # vs Mem0 / Zep / OpenAI File Search
 api-reference/                  # Introduction / API Surface / Errors / Versioning
-guides/                         # (empty — planned, see Phase 2 of the roadmap)
-cookbook/                       # (empty — ship 3 full or hide section)
+guides/                         # Writing a Constitution / Context Attachments / Extraction Profiles / Extraction Preview / PII
+changelog.mdx                   # Release notes — one entry per API version
 logo/                           # Brand assets (light/dark/favicon)
 images/                         # Diagrams, OG images
 DESIGN.md                       # ← design system source of truth (READ FIRST)
 README.md                       # public-facing repo overview
+.github/workflows/              # docs-check.yml — the broken-links gate on every PR
 .gitignore
 ```
 
@@ -67,9 +75,10 @@ README.md                       # public-facing repo overview
 
 1. Read DESIGN.md voice section first. Match the register (builder voice; no forbidden vocabulary; numbers in prose).
 2. Add the page's MDX file at the right path.
-3. Register it in `mint.json` under `navigation`.
+3. Register it in `docs.json` under `navigation`.
 4. If it shows a fact, score, or source, render a Fact Receipt component (see DESIGN.md anatomy).
-5. `mintlify dev` to verify rendering before commit.
+5. `npx mint@latest dev` to verify rendering before commit.
+6. `npx mint@latest broken-links` — the same check CI runs on the PR.
 
 ### Updating per-endpoint API reference
 

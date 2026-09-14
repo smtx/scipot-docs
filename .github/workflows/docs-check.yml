@@ -1,0 +1,21 @@
+name: Docs check
+
+# Merging to main deploys straight to docs.scipot.ai, so the page-compilation
+# and internal-link check runs on every PR and on main itself.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  broken-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Mintlify's CLI does not support Node 25+.
+          node-version: 22
+      # Same command the contributor runs locally (see CLAUDE.md). It fails the
+      # job on a broken internal link or an MDX file it cannot compile.
+      - run: npx -y mint@latest broken-links

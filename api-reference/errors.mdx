@@ -161,7 +161,7 @@ Codes are stable across versions. We never repurpose a code; we may add new ones
 
 | Code | HTTP | Cause | Fix |
 |---|---|---|---|
-| `RATE_LIMIT_EXCEEDED` | 429 | Per-integrator request rate exceeded — the global sliding window, or a route's own window (today only the extraction preview, 30/min). `detail.scope` names which: `global` or `extraction_preview`. | Back off per `Retry-After`; the `X-RateLimit-*` headers describe the window that refused. Use exponential backoff for sustained pressure. |
+| `RATE_LIMIT_EXCEEDED` | 429 | Per-integrator request rate exceeded — the global sliding window, or a route's own window (the extraction preview, 30/min; the PII playground, 60/min). `detail.scope` names which: `global`, `extraction_preview` or `pii_preview`. | Back off per `Retry-After`; the `X-RateLimit-*` headers describe the window that refused. Use exponential backoff for sustained pressure. |
 | `RATE_CONCURRENT_JOBS` | 429 | Too many concurrent ingestion jobs in this workspace. | Wait for current jobs to complete; raise concurrent-job limit during onboarding. |
 
 ### Validation (`VALIDATION_*`) — never retryable
@@ -221,8 +221,20 @@ Codes introduced with [Extraction Profiles](/guides/extraction-profiles) (`0.5.0
 | `LLM_TIMEOUT` / `LLM_RATE_LIMIT` / `LLM_UNAVAILABLE` / `LLM_INVALID_RESPONSE` | 502 *(on the preview)* | Nothing could be extracted: every chunk failed with that provider code, or the document-context call did. On a preview each provider call is bounded to 35 s with no SDK retries, so a slow provider is a typed 502 here rather than a job error. | Retry the preview. `retryable` on the envelope is authoritative. | Yes |
 | *(no code)* | 409 | `PUT` or `DELETE /profiles/{profile_id}` lost to a concurrent write. | Re-read the head and retry. | Yes, after re-read |
 
+### Fact-level PII
+
+Codes introduced with the [fact-level PII layer](/guides/pii) (`0.5.4.0`).
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `PII_NOT_ENTITLED` | 403 | A profile (stored or inline) asks for `pii.mode` other than `off` in a workspace without `features.pii`. Checked when the profile is created or updated, and again at enqueue on `/ingest`, `/extract-from-document` and the extraction preview, against the lever the run would effectively apply. A `null` lever resolves to the deployment default first, so omission cannot grant the premium. | Grant it — `PATCH /integrator/workspaces/{workspace_id}/features` with `{"pii": true}` — or set `pii.mode` to `off`. | No |
+| `PII_PREVIEW_CONTENT_TOO_LARGE` | 413 | `POST /pii/preview` received more than 20 000 characters across `texts`. | Send fewer or shorter texts; `limits.max_chars` on any successful response states the cap. | No |
+| `PII_PREVIEW_CONCURRENCY_LIMIT` | 429 | More than 8 playground calls in flight on one API process (per replica, not per integrator). | Honor `Retry-After: 2`. | Yes |
+| `PII_DETECTOR_UNAVAILABLE` | 503 | The detector could not evaluate the texts, or returned a result this release cannot apply. Ingestion fails closed with this code before anything is deduplicated or persisted — the layer never stores unmasked facts instead. | `retryable: true` means retry; `false` means the deployment's detector is misconfigured and only an operator can fix it. | When noted |
+| `PII_ENTITLEMENT_UNAVAILABLE` | 503 | The workspace's `features` could not be read. An unknown verdict is never downgraded to "not entitled", nor upgraded. | Retry shortly. | Yes |
+
 <Note>
-**Two body shapes on the preview route.** Gates the preview shares with `/ingest` (rate limit, POT lookup, validation, token quota) answer `{"detail": ...}` like `/ingest` does; the preview's own gates (`413`, concurrency `429`, `5xx`) answer the `{"error": {...}}` envelope above. OpenAPI documents the shape per status. A parser that reads `body.error ?? body.detail` handles both.
+**Two body shapes on `POST /pots/{pot_id}/extract/preview`.** Gates that route shares with `/ingest` (rate limit, POT lookup, validation, token quota) answer `{"detail": ...}` like `/ingest` does; its own gates (`413`, concurrency `429`, `5xx`) answer the `{"error": {...}}` envelope above. `POST /pii/preview` splits the same way with a shorter shared set: its rate limit and validation (including `PROFILE_NOT_FOUND`) answer `detail`, its own `413`, concurrency `429` and `503`s answer the envelope. It has no POT lookup and no token-quota gate. OpenAPI documents the shape per status. A parser that reads `body.error ?? body.detail` handles both.
 </Note>
 
 ### Async job failures

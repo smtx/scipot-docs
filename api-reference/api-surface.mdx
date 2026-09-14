@@ -91,7 +91,7 @@ Concept: [Context Attachments →](/trust-mechanics/context-attachments). How-to
 
 ## Extraction profiles
 
-A named, versioned bundle of extraction levers (`language`, `scope_aware`, `granularity`, `additional_instructions`, `business_relevance`) owned by a workspace. Pass `profile_id` on an ingestion; every fact records `provenance.profile_id` / `profile_version`. Versions are immutable and survive edits and deletes.
+A named, versioned bundle of extraction levers (`language`, `scope_aware`, `granularity`, `additional_instructions`, `business_relevance`, `pii`) owned by a workspace. Pass `profile_id` on an ingestion; every fact records `provenance.profile_id` / `profile_version`. Versions are immutable and survive edits and deletes.
 
 | Method | Path | What it does |
 |---|---|---|
@@ -103,6 +103,20 @@ A named, versioned bundle of extraction levers (`language`, `scope_aware`, `gran
 | GET | `/profiles/{profile_id}/versions/{version}` | Resolve the exact levers a fact's `provenance.profile_version` points at, after edit or delete. |
 
 Guide: [Extraction Profiles →](/guides/extraction-profiles). Concept: [POT Score & Provenance →](/trust-mechanics/pot-score-and-provenance#which-profile-produced-this-fact).
+
+---
+
+## PII
+
+The fact-level PII layer masks personal data inside the facts, never in the document. It is the `pii` lever of an extraction profile; this route is its playground.
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/pii/preview` | Run the PII layer on up to 50 texts (20 000 characters total) with a `pii` lever inline or from a stored profile. Returns each text anonymised, the masked entities with their offsets in the original, the coverage, and the text units it cost. **Nothing is stored, no text is logged.** Every response echoes the limits it ran under. |
+
+Entitlement lives on the workspace (`features.pii`, see [Workspaces](#workspaces)): a profile that switches the layer on without it is `403 PII_NOT_ENTITLED`, and the playground falls back to the floor with a `notice`.
+
+Guide: [Fact-level PII →](/guides/pii).
 
 ---
 
@@ -221,6 +235,7 @@ Each integrator can manage many workspaces. A workspace is the data boundary.
 | PATCH | `/integrator/workspaces/{workspace_id}/quotas` | Update token quota. |
 | POST | `/integrator/workspaces/{workspace_id}/token-topup` | Add bonus tokens to a workspace. |
 | POST | `/integrator/workspaces/{workspace_id}/token-reset` | Reset bonus tokens. |
+| PATCH | `/integrator/workspaces/{workspace_id}/features` | Grant or revoke the workspace's premium capabilities. Today: `pii`, the [fact-level PII layer](/guides/pii). |
 
 ---
 

@@ -91,7 +91,8 @@ Same headers as `/ingest`: `X-API-Key`, `X-Workspace-ID`, and optionally `X-Cont
 | `source` | Optional. Same model as `/ingest` (`path` ≤ 2048 chars, `author` ≤ 256). Defaults to path `preview`, type `text`. Lands on each fact's `provenance.sources[0]`. |
 | `language` | Optional ISO 639-1 override. Same ladder as `/ingest`: request > profile > POT default > auto-detect. Only the [supported codes](/guides/extraction-profiles#the-levers) are accepted. |
 | `profile_id` | A stored profile of this workspace. Unknown, deleted, or another workspace's: `422 PROFILE_NOT_FOUND`. |
-| `profile` | An inline profile. Validated with the same rules as `POST /profiles`. |
+| `profile` | An inline profile. Validated with the same rules as `POST /profiles`. Carries the `pii` lever like a stored one. |
+| `include_unmasked` | Default `false`. With the [PII layer](/guides/pii) on, `true` adds `facts[].pii.unmasked_content` — the fact before masking, from the same extraction. Never persisted. |
 
 `profile_id` and `profile` are mutually exclusive (`422` when both are sent). Omit both to preview without a profile. Unknown fields are a `422`, like `/ingest`.
 
@@ -181,6 +182,7 @@ Every number has one home:
 | `extraction_audit` | Counts before and after deduplication (`kept` equals `len(facts)`), and each discarded fact with its `reason`: `duplicate` (of another previewed fact, `duplicate_of_id` and `similarity_score` say which and how close), `duplicate_of_constitution`, `too_short`, `too_long`. |
 | `errors` / `partial` | One `{chunk_index, code, message, retryable}` per failed chunk, first 25 at most, same codes as a job's `errors[]`. `partial` is `true` when `chunking.chunks_failed > 0`. A chunk that fails while others succeed is a `200` with `partial: true`, not an error status. |
 | `usage` | LLM calls and tokens as metered for this preview. |
+| `pii_applied` | What the [fact-level PII layer](/guides/pii) did on this run (mode, detector, counts by type, coverage, units), or `null` when it did not run. Per-fact detail rides on `facts[].pii`. |
 | `limits` | The ceilings this call ran under, so you can size inputs without hard-coding them. |
 
 <Note>
@@ -199,7 +201,8 @@ In the order the gates run:
 | `422` | `PROFILE_NOT_FOUND`, validation | `detail` | Unknown profile, both profile sources, unsupported `language`, an inline profile failing the profile rules, unknown fields. |
 | `429` | `TOKEN_QUOTA_EXCEEDED` | `detail` | Monthly token quota reached. |
 | `429` | `PREVIEW_CONCURRENCY_LIMIT` | `error` + `Retry-After: 5` | A fifth preview in flight on the same API process (**4 concurrent per process**, per replica, not per integrator). A slot frees within one typical preview. |
-| `503` | `LLM_NOT_CONFIGURED` | `error` | No usable LLM key on this deployment. |
+| `403` | `PII_NOT_ENTITLED` | `error` | The profile switches the [PII layer](/guides/pii) on in a workspace without `features.pii`. |
+| `503` | `LLM_NOT_CONFIGURED`, `PII_DETECTOR_UNAVAILABLE` | `error` | No usable LLM key on this deployment, or the PII detector could not answer (the preview fails closed rather than returning unmasked facts). |
 | `502` | `LLM_TIMEOUT`, `LLM_RATE_LIMIT`, `LLM_UNAVAILABLE`, `LLM_INVALID_RESPONSE` | `error` | Nothing could be extracted: every chunk failed with that provider code, or the document-context call itself failed. `retryable` says whether to try again. |
 | `504` | `PREVIEW_TIMEOUT` | `error` | The whole pipeline exceeded the **45 s** ceiling. Provider calls that had completed were metered; calls still in flight were cancelled and are not. Retry with a shorter excerpt. |
 | `500` | `INTERNAL_ERROR` | `error` | A failure of ours. `retryable` is `true` only for transient infrastructure failures. |
@@ -230,5 +233,8 @@ Steps 1 to 4 cost previews (tokens, no storage). Step 5 is the only write.
   </Card>
   <Card title="Errors" icon="triangle-exclamation" href="/api-reference/errors#extraction-profiles-and-preview">
     The preview's codes in the full error reference.
+  </Card>
+  <Card title="Fact-level PII" icon="user-shield" href="/guides/pii">
+    `include_unmasked`, `pii_applied`, and the lever that drives them.
   </Card>
 </CardGroup>

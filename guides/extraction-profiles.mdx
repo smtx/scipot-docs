@@ -8,7 +8,7 @@ An extraction profile is a named bundle of levers, owned by a workspace, that sh
 
 Profiles are versioned and the versions are immutable. Editing a profile writes version `n+1`; deleting it removes only the head. A fact extracted under version 2 six months ago still resolves to the exact levers that produced it, whatever happened to the profile since.
 
-Available since API `0.5.0.0` (`language`, `scope_aware`) and `0.5.1.0` (the three prompt levers). To try levers on a text before committing to an ingestion, see [Extraction Preview](/guides/extraction-preview).
+Available since API `0.5.0.0` (`language`, `scope_aware`), `0.5.1.0` (the three prompt levers) and `0.5.4.0` (`pii`). To try levers on a text before committing to an ingestion, see [Extraction Preview](/guides/extraction-preview).
 
 ## When you want one
 
@@ -73,7 +73,7 @@ Response (`201`):
 export PROFILE_ID="01J...PROF"
 ```
 
-Names are unique by convention only. The id is the key, so two profiles can share a name. Unknown fields are rejected with `422`, including levers that later releases add (`pii_exclusion` is one): a profile never carries a lever the deployment silently ignores.
+Names are unique by convention only. The id is the key, so two profiles can share a name. Unknown fields are rejected with `422`, including levers a later release may add: a profile never carries a lever the deployment silently ignores.
 
 ## The levers
 
@@ -84,6 +84,7 @@ Names are unique by convention only. The id is the key, so two profiles can shar
 | `granularity` | `"fine"` / `"standard"` / `"coarse"` / `null` | How finely the model splits the text. `fine` extracts every data point and minor attribute. `coarse` keeps only the substantive claims: decisions, rules, commitments, key figures, definitions. `standard` and `null` are the base prompt's own behaviour. |
 | `additional_instructions` | string ≤ 1000 chars or `null` | Free-text guidance the model reads on every chunk. It refines *what* to extract and *how* to phrase facts. Every rule of the base prompt (output format, language, scope, atomicity) takes precedence over it, and the model is told so. |
 | `business_relevance` | string ≤ 500 chars or `null` | One statement of what the destination knowledge base is for. The model prioritises facts that bear on it and may omit claims that do not. |
+| `pii` | object or `null` | The fact-level PII layer: `mode` (`anonymize` / `block` / `off`), which contextual and structured entity types to act on, and the reserved `reversible`. `null` follows the deployment default. A mode other than `off` needs the workspace's `features.pii` (`403 PII_NOT_ENTITLED`). Full contract: [PII](/guides/pii). |
 | `description` | string ≤ 500 chars or `null` | For you, not for the model. Never reaches the prompt. |
 
 Three things worth knowing before you tune:
@@ -283,8 +284,9 @@ The profile routes answer the structured envelope for their own errors and the `
 |---|---|---|
 | `400` | | Malformed `cursor` on `GET /profiles`. |
 | `404` | | `GET`, `PUT` or `DELETE` on a profile that is missing or owned by another workspace; `GET .../versions/{n}` for a version that does not exist here. |
+| `403` | `PII_NOT_ENTITLED` | `pii.mode` is not `off` and the workspace lacks `features.pii`. Raised when the profile is created or updated, and again when a run under it is enqueued. |
 | `409` | | A concurrent `PUT` or `DELETE` changed the head first. Re-read and retry. |
-| `422` | | Unknown field or lever (`pii_exclusion` included), unsupported `language`, a free-text lever that is blank, over its cap, contains control characters or SciPot's guidance delimiters, `version < 1`, a `name` with control characters. |
+| `422` | | Unknown field or lever, unsupported `language`, a free-text lever that is blank, over its cap, contains control characters or SciPot's guidance delimiters, an unknown key inside `pii` or `pii.reversible: true`, `version < 1`, a `name` with control characters. |
 | `422` | `PROFILE_NOT_FOUND` | `profile_id` on `/ingest`, `/extract-from-document` or `/extract/preview` is not a profile of this workspace. Nothing is enqueued or metered. `detail.profile_id` echoes the id. |
 
 ## Not there yet
@@ -295,7 +297,7 @@ So you do not go looking for it:
 - **No profile on the job result.** `GET /jobs/{job_id}` does not echo the snapshot; the facts and `extraction_history` carry the pair.
 - **No versions list.** `GET /profiles/{profile_id}/versions/{n}` resolves one version; the head's `version` tells you how many exist.
 - **No name uniqueness** and **no per-workspace profile quota**.
-- **No `pii_exclusion` lever.** Sending it is a `422` until the PII gate ships.
+- **No reversible pseudonyms.** `pii.reversible: true` is a `422`; the vault that would undo a pseudonym is not built. See [PII](/guides/pii).
 - **No `If-Match` on `PUT`.** See the warning under Step 5.
 
 ---
@@ -306,6 +308,9 @@ So you do not go looking for it:
   </Card>
   <Card title="POT Score & Provenance" icon="scale-balanced" href="/trust-mechanics/pot-score-and-provenance">
     Where `profile_id` and `profile_version` sit on the fact receipt.
+  </Card>
+  <Card title="Fact-level PII" icon="user-shield" href="/guides/pii">
+    The `pii` lever, the playground, the floor, and what each run reports.
   </Card>
   <Card title="Extraction with Context Attachments" icon="paperclip" href="/guides/extraction-with-context-attachments">
     Per-document guidance. Composes with a profile on `/extract-from-document`.

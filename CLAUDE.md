@@ -4,7 +4,7 @@ This file gives AI coding assistants (Claude Code, Cursor, etc.) the context the
 
 ## Repo purpose
 
-This is **scipot-docs** — the public developer documentation for SciPot, published at **docs.scipot.ai** via Mintlify (hosted, free tier). The API itself lives in `scipot-core` (separate repo). Per-endpoint reference is auto-imported from `https://api.scipot.ai/openapi.json`; this repo contributes the surrounding meta pages (Welcome, Big Picture, Get Started, Trust Mechanics, Comparisons, Api Surface, Errors, Versioning) plus the Mintlify config.
+This is **scipot-docs** — the public developer documentation for SciPot, published at **docs.scipot.ai** via Mintlify (hosted, free tier). The API itself lives in `scipot-core` (separate repo). Per-endpoint reference is auto-imported from `https://api.scipot.ai/openapi.json`; this repo contributes the surrounding meta pages (Welcome, Big Picture, Get Started, Guides, Trust Mechanics, Comparisons, API Surface, Errors, Versioning, Changelog) plus the Mintlify config.
 
 Sister surface: **scipot.ai** (the marketing landing) lives in the `scipot-landing` repo and shares the same design system.
 
@@ -60,10 +60,12 @@ trust-mechanics/                # POT Score & Provenance / Constitution / Curato
 comparisons/                    # vs Mem0 / Zep / OpenAI File Search
 api-reference/                  # Introduction / API Surface / Errors / Versioning
 guides/                         # Writing a Constitution / Context Attachments / Extraction Profiles / Extraction Preview / PII
+changelog.mdx                   # Release notes — one entry per API version
 logo/                           # Brand assets (light/dark/favicon)
 images/                         # Diagrams, OG images
 DESIGN.md                       # ← design system source of truth (READ FIRST)
 README.md                       # public-facing repo overview
+.github/workflows/              # docs-check.yml — the broken-links gate on every PR
 .gitignore
 ```
 

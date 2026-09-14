@@ -370,8 +370,8 @@ A single recurring component that appears across both surfaces. It is the visual
 - Sidebar nav left. Right-rail TOC. Content column max 720px.
 - Welcome page hero: full-width, Cormorant italic display + sub-hero triplet + Fact Receipt on right (md-size).
 - Concept pages: lead paragraph, then mechanism, then example with Fact Receipt, then code block, then cross-link cards.
-- Quickstart: must fit on 2-3 screens. Currently 445 lines — see audit fixes.
-- Cards: Mintlify default `<Card>` and `<CardGroup>` — overrode via `mint.json` colors but structure stays.
+- Quickstart: must fit on 2-3 screens. Currently 373 lines after the split — see audit fix #2.
+- Cards: Mintlify default `<Card>` and `<CardGroup>` — overrode via `docs.json` colors but structure stays.
 - Code blocks: full-bleed within reading column, JetBrains Mono, no backgrounds on inline code (just `border-bottom: 1px solid --border-subtle`).
 
 ### scipot.ai (Cloudflare Pages, static HTML)

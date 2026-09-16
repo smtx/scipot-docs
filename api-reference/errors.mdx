@@ -237,6 +237,14 @@ Codes introduced with the [fact-level PII layer](/guides/pii) (`0.5.4.0`).
 **Two body shapes on `POST /pots/{pot_id}/extract/preview`.** Gates that route shares with `/ingest` (rate limit, POT lookup, validation, token quota) answer `{"detail": ...}` like `/ingest` does; its own gates (`413`, concurrency `429`, `5xx`) answer the `{"error": {...}}` envelope above. `POST /pii/preview` splits the same way with a shorter shared set: its rate limit and validation (including `PROFILE_NOT_FOUND`) answer `detail`, its own `413`, concurrency `429` and `503`s answer the envelope. It has no POT lookup and no token-quota gate. OpenAPI documents the shape per status. A parser that reads `body.error ?? body.detail` handles both.
 </Note>
 
+### Retrieval
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `STRATEGY_NOT_AVAILABLE` | 501 | `strategy` on `POST /pots/{pot_id}/query` names a strategy that endpoint does not run: `cag` since `0.6.0.0`, or `graph_rag` on a deployment without GraphRAG. Body: `{"detail": {"code", "message"}}`. | Send `strategy: "auto"` or `"rag"`. For a cached keyword/entity lookup, call `POST /pots/{pot_id}/cag/search`. | No |
+
+`POST /pots/{pot_id}/cag/search` and `/cag/warm` answer a `500` with a plain-string `detail` (`"CAG search failed"`, `"CAG cache initialization failed"`) when the cache cannot load, and a `503` with `Retry-After` when the storage backend reports itself unavailable.
+
 ### Async job failures
 
 Jobs that fail return one of the above codes in their `error` block. The same retry semantics apply: a job failure with `retryable: true` can be re-submitted; `retryable: false` requires changing the input.

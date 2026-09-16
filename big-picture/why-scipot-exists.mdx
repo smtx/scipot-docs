@@ -73,18 +73,18 @@ A Company Brain doesn't replace your wiki, your CRM, or your data warehouse. It 
 
 ---
 
-## The four retrieval strategies
+## Retrieval strategies
 
-SciPot uses a **Hybrid Router** that composes four retrieval strategies, picking the best one — or combination — for each query:
+Three retrieval strategies run today and a fourth is on the roadmap. The **Hybrid Router** behind `/query` and `/synthesize` classifies each question and runs RAG or GraphRAG for it:
 
-| Strategy | Best for | Latency |
-|---|---|---|
-| **CAG** (Cached Augmented Generation) | Factual lookups with known entity references | &lt;5 ms |
-| **RAG** (Retrieval Augmented Generation) | Semantic queries, paraphrased questions | ~200 ms |
-| **GraphRAG** | Relational queries that traverse edges between facts | ~500 ms |
-| **DocumentIndex** | Hierarchical document reasoning (coming) | ~1 s |
+| Strategy | Best for | Where it runs | Latency |
+|---|---|---|---|
+| **RAG** (Retrieval Augmented Generation) | Semantic queries, paraphrased questions | `/query`, `/synthesize`, `/search` | ~200 ms |
+| **GraphRAG** | Relational queries that traverse edges between facts | `/query`, `/synthesize` (seeded from RAG) | ~500 ms |
+| **CAG** (Cached Augmented Generation) | Keyword and entity lookups over Constitution and high-certainty facts | `/cag/search` only | One cache lookup plus one batched storage read |
+| **DocumentIndex** | Hierarchical document reasoning | Not built yet | — |
 
-Each strategy returns facts ranked by a combined score: `combined = (similarity × 0.7) + (pot_score × 0.3)`. The Hybrid Router classifies the incoming query and chooses the optimal strategy automatically — or you can pin a strategy explicitly when you have a preference.
+RAG and GraphRAG rank facts by `combined = (similarity × 0.7) + (pot_score × 0.3)`. The router picks between them automatically, or you can pin `rag` or `graph_rag`. Since `0.6.0.0` CAG is not one of the router's options: call `/cag/search` when a keyword lookup is what you want.
 
 ---
 

@@ -18,6 +18,32 @@ _Changes in flight on `main` but not yet tagged._
 
 ---
 
+## 0.6.0.0 — 2026-09-16
+
+**Breaking in what the response says, not in what it returns.** `/query` and `/synthesize` now report the retrieval that actually ran, and `strategy: "cag"` is refused instead of silently coming back empty.
+
+### Changed
+
+- **BREAKING: `POST /pots/{pot_id}/query` and `/synthesize` run RAG, or GraphRAG for relational questions, and never CAG. `strategy: "cag"` on `/query` answers `501 STRATEGY_NOT_AVAILABLE`.** CAG never returned a fact through these two endpoints: the cache behind their router was never loaded, so every factual question already fell back to RAG and `strategy: "cag"` always returned zero results. The facts you receive do not change. The routing metadata does:
+
+  | `/query` metadata | Before | Now |
+  |---|---|---|
+  | `strategy: "cag"` | `200`, zero results | `501 STRATEGY_NOT_AVAILABLE` |
+  | `strategy_used` for a factual question | `cag_with_rag_fallback` | `rag` |
+  | `cag_attempted` | `true` | `false` |
+  | `fallback_triggered` / `fallback_reason` | `true` / `cag_no_match` | `false` / `null` |
+  | GraphRAG `traversal_metadata.seed_strategy_used` / `seed_fallback_triggered` | `cag` / `true` | `rag` / `false` |
+  | `gap_signal.reasons` | could include `retrieval_fallback` | no longer does for factual questions |
+
+  `classification.suggested_strategy` still reports what the classifier suggests and can read `cag`; `strategy_used` is what ran. `cag` and `cag_with_rag_fallback` stay in the response schema, and `enable_fallback` is accepted but has nothing to switch. No deprecation window: the removed behaviour never returned a result. See [Errors](/api-reference/errors#retrieval).
+
+### Fixed
+
+- **`POST /pots/{pot_id}/cag/search` no longer returns facts after they are deleted.** Its cache used to live for the whole life of the API process, so a deleted fact kept coming back until a restart. Every non-Constitution result is now confirmed against storage before it is returned, and the cache rebuilds every 5 minutes. Right after a deletion a search can return fewer than `top_k` results until that rebuild; reads are eventually consistent, so a fact deleted less than about 1 second earlier can still appear.
+- **`/cag/search` and `/cag/warm` error bodies no longer carry internal exception text.** A `500` carries a fixed message, and a storage backend that reports itself unavailable answers `503` with `Retry-After`, like the rest of the API.
+
+---
+
 ## 0.5.4.1 — 2026-09-13
 
 No API change. A fix to the repository's own manual-test script for the PII layer (`--env-file` handling); nothing an integrator calls behaves differently.

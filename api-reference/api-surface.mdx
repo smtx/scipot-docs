@@ -181,6 +181,23 @@ Concept: [Contradiction Detection →](/trust-mechanics/contradiction-detection)
 
 For most agent integrations, **`/synthesize` is the right endpoint** — it composes the full receipt-bearing response.
 
+Both `/query` and `/synthesize` return `is_knowledge_gap` and a versioned `gap_signal` (`version: "v3"` since `0.7.4.0`): `confidence`, `threshold`, `total_facts`, `high_certainty_facts`, `average_score` and `reasons[]`. The signal is request-shape independent: it never fires merely because few facts were requested. Since `v3` a Constitution or Verified fact whose relevance to the query (the RAG result's `match_details.similarity_score`) is below `GAP_SIGNAL_RELEVANCE_FLOOR` (0.40 by default) is not evidence: it counts for neither the confidence floor nor `average_score`, and `reasons` carries `high_certainty_ignored:N`. `total_facts` still counts everything retrieved. GraphRAG results carry no query similarity and keep counting. The two thresholds, `GAP_SIGNAL_MIN_CONFIDENCE` and `GAP_SIGNAL_RELEVANCE_FLOOR`, are deployment settings bounded to `[0, 1]` and calibrated together per embedding provider. When `is_knowledge_gap` is `true`, record the gap with the endpoints below.
+
+---
+
+## Knowledge gaps
+
+The knowledge-gap loop: record a question the brain could not answer with confidence, route it to an expert, and re-answer once the missing knowledge is ingested. SciPot owns the primitive and its lifecycle; who gets notified is your call. Gaps are a workspace-scoped work queue.
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/pots/{pot_id}/knowledge-gaps` | Record a gap against a POT. Idempotent on `idempotency_key` within the workspace: a repeat returns the existing gap. `409` when a create kept losing the race on its key to a concurrent create of the same key: retry, the winner is returned. |
+| GET | `/knowledge-gaps` | The workspace queue, cursor-paginated. Filter by `state` and `updated_since`. |
+| GET | `/knowledge-gaps/{gap_id}` | One gap, workspace-isolated. |
+| POST | `/knowledge-gaps/{gap_id}/transitions` | Drive the state machine: `open → routed → ingested → resolved`, plus `dismissed` / `duplicate` / `expired` / `reopened`. `expected_from` is a compare-and-set guard; `409` when a concurrent transition won. |
+
+Codes: [Errors → Knowledge gaps](/api-reference/errors#knowledge-gaps).
+
 ---
 
 ## Stats & visualisation
@@ -293,6 +310,8 @@ Async operations return a `job_id`. Poll the jobs API for status.
 | GET | `/jobs` | List recent jobs in the workspace. |
 
 Webhook notifications for completed jobs are coming (milestone M22). Today, polling is the official path — 1–5 s interval is fine.
+
+A `completed` job can still owe you something: `result.partial` is `true` when `chunks_failed > 0` (chunks whose LLM extraction failed; `errors[]` lists the first 25) or when `indexing_error` is set (`INDEXING_FAILED`, since `0.7.4.0`: the facts did not all reach the vector store). `facts_indexed` counts the facts whose vector is known to have landed; it is `null` on records older than `0.7.4.0` or when no vector store is wired. Either way, re-extract the document; deduplication keeps the facts you already have. Codes: [Errors → Async job failures](/api-reference/errors#async-job-failures).
 
 ---
 

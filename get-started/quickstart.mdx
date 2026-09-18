@@ -241,7 +241,12 @@ If you don't have an API key yet, see [Authentication & API Keys →](/get-start
       "status": "completed",
       "result": {
         "chunks_processed": 1,
+        "chunks_failed": 0,
+        "partial": false,
+        "errors": [],
         "facts_created": 4,
+        "facts_indexed": 4,
+        "indexing_error": null,
         "edges_created": 2,
         "scores_updated": 4,
         "processing_time_ms": 8420,
@@ -253,6 +258,8 @@ If you don't have an API key yet, see [Authentication & API Keys →](/get-start
       }
     }
     ```
+
+    Check `result.partial` before you mark the document ingested. It is `true` when `chunks_failed > 0` (some chunks were not extracted; `errors[]` lists the first 25) or when `indexing_error` is set (`INDEXING_FAILED`: the facts did not all reach the vector store, and `facts_indexed` counts only the vectors known to have landed). In both cases, re-extract the document; deduplication keeps the facts you already have. Details: [Errors → Async job failures](/api-reference/errors#async-job-failures).
   </Step>
 
   <Step title="Ask your POT a question">

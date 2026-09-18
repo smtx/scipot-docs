@@ -178,7 +178,7 @@ Codes are stable across versions. We never repurpose a code; we may add new ones
 | Code | HTTP | Cause | Fix |
 |---|---|---|---|
 | `RESOURCE_NOT_FOUND` | 404 | Entity does not exist or is outside this workspace. | Check the ID. Workspace scoping may be the cause. |
-| `RESOURCE_CONFLICT` | 409 | Conflicting state: duplicate slug, content hash already exists, etc. | `cause` names the conflict. Decide intent: dedupe or reject. |
+| `RESOURCE_CONFLICT` | 409 | Conflicting state: duplicate slug, etc. A re-upload of content the workspace already holds is `DOCUMENT_DUPLICATE` ([below](#document-upload)), not this code. | `cause` names the conflict. Decide intent: dedupe or reject. |
 | `RESOURCE_GONE` | 410 | Entity was hard-deleted or workspace deactivated. | Cannot recover. |
 
 ### Quota (`QUOTA_*`) — never retryable without action
@@ -245,9 +245,32 @@ Codes introduced with the [fact-level PII layer](/guides/pii) (`0.5.4.0`).
 
 `POST /pots/{pot_id}/cag/search` and `/cag/warm` answer a `500` with a plain-string `detail` (`"CAG search failed"`, `"CAG cache initialization failed"`) when the cache cannot load, and a `503` with `Retry-After` when the storage backend reports itself unavailable.
 
+### Document upload
+
+`POST /documents/upload` answers a duplicate in the **`detail` shape**, not the `error` envelope: `{"detail": {"code", "message", "document_id"}}`.
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `DOCUMENT_DUPLICATE` | 409 | The workspace already holds a document with the same content (SHA-256). `detail.document_id` is that document. `detail.message` keeps the pre-`0.7.4.0` sentence `Document with same content already exists: <id>` for one more release, so a parser that read the id out of the message still works; move it to `detail.document_id` before `0.8`. A document an older version left in `conversion_status: failed` does not count. | Do not re-upload. Extract from the existing document: `POST /pots/{pot_id}/extract-from-document` with `detail.document_id`. | No |
+
+### Knowledge gaps
+
+`POST /pots/{pot_id}/knowledge-gaps` and `POST /knowledge-gaps/{gap_id}/transitions` answer a lost race with a plain `{"detail": "<message>"}` and no code.
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| *(no code)* | 409 | An idempotent create (`idempotency_key`) kept losing the race on its key to a concurrent create of the same key. Since `0.7.4.0` the key and the gap land in one transaction, so the race can no longer produce two gaps; a loser that keeps losing answers `409` instead of a `500`. | Retry the same request: the winner is returned. | Yes |
+| *(no code)* | 409 | A transition lost to a concurrent transition: `expected_from` no longer matches the gap's state. | Re-read the gap and decide again. | Yes, after re-read |
+
 ### Async job failures
 
 Jobs that fail return one of the above codes in their `error` block. The same retry semantics apply: a job failure with `retryable: true` can be re-submitted; `retryable: false` requires changing the input.
+
+One job error lives outside `error`. Since `0.7.4.0` a job whose facts did not all reach the vector store still completes, with `result.indexing_error` set, `result.partial: true` and `result.facts_indexed` saying how many are searchable:
+
+| Code | Where | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `INDEXING_FAILED` | `result.indexing_error`, with `step: "indexing"`. Never in `result.errors[]`; the job's `status` is `completed`. | The indexing phase failed: reading the extracted facts back, persisting them, embedding them, upserting the vectors, or the vector store rejected some. The job's facts may be missing or stored without a vector. `result.facts_indexed` counts only the vectors known to have landed; search cannot find the rest. | Re-extract the document with `POST /pots/{pot_id}/extract-from-document`. Deduplication keeps the facts that exist, and the re-extraction re-embeds them. | Yes |
 
 ## When to file a support request
 

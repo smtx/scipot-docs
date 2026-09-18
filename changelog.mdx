@@ -18,6 +18,22 @@ _Changes in flight on `main` but not yet tagged._
 
 ---
 
+## 0.7.4.0 — 2026-09-18
+
+_What the knowledge-gap loop needs to run unattended: a gap signal that off-topic axioms cannot hide, a job result that says whether its facts are searchable, a duplicate upload you can act on, and a gap create that cannot fork._
+
+### Changed
+
+- **Gap signal `v3`: certainty counts only the facts that could have answered.** Retrieval has no relevance cut-off, so a POT's Constitution axioms (POT Score 1.0) ride the top-k of any question whose answer is missing, and until now each of them floored `confidence` at 0.85 and raised the mean by itself: one off-topic axiom hid a real gap. A Constitution or Verified fact whose relevance to the query (the RAG result's `match_details.similarity_score`) is below `GAP_SIGNAL_RELEVANCE_FLOOR` (0.40 by default) is no longer evidence. It counts for neither the confidence floor nor `average_score`, and `reasons` carries `high_certainty_ignored:N`. `total_facts` still counts everything retrieved; low-certainty facts are never dropped. GraphRAG results carry no query similarity and keep counting as in `v2`. `gap_signal.version` is `"v3"`. **Behaviour change:** a POT with a large Constitution reports more gaps, which is the correct answer; re-check `GAP_SIGNAL_MIN_CONFIDENCE` if you tuned it around the old saturation. Both thresholds are deployment settings bounded to `[0, 1]`, calibrated together per embedding provider. See [API Surface → Knowledge gaps](/api-reference/api-surface#knowledge-gaps).
+- **A job whose facts did not all reach the vector store is `partial`, not `completed` with nothing on it.** An embedding or upsert failure used to be swallowed, so a client could mark a document ingested while retrieval could not see its facts. `JobResult` gains `facts_indexed` (the facts whose vector reached the store; `null` on records older than this release or when no vector store is wired) and `indexing_error` (`{code: "INDEXING_FAILED", message, step: "indexing", retryable: true}`); `partial` is now `chunks_failed > 0` or `indexing_error` set. Re-extracting the document is a real recovery: it re-embeds the document's existing facts as well, even when the new extraction produced no facts. See [Errors → Async job failures](/api-reference/errors#async-job-failures).
+- **`POST /documents/upload` answers its `409` structured.** `detail` is `{"code": "DOCUMENT_DUPLICATE", "message": ..., "document_id": ...}`, so a client that meant to extract can go straight to `POST /pots/{pot_id}/extract-from-document` from the field. `message` keeps the pre-`0.7.4.0` sentence `Document with same content already exists: <id>` for one more release; it is reworded in `0.8`. See [Errors → Document upload](/api-reference/errors#document-upload).
+
+### Fixed
+
+- **An idempotent gap create could still create two gaps.** Two identical `POST /pots/{pot_id}/knowledge-gaps` requests arriving together could both write a gap under the same `idempotency_key`. The key and the gap now land in one transaction; the loser re-reads the winner, and a race that keeps being lost ends in a `409` (retry: the winner is returned), never a `500`. See [Errors → Knowledge gaps](/api-reference/errors#knowledge-gaps).
+
+---
+
 ## 0.6.0.0 — 2026-09-16
 
 **Breaking in what the response says, not in what it returns.** `/query` and `/synthesize` now report the retrieval that actually ran, and `strategy: "cag"` is refused instead of silently coming back empty.

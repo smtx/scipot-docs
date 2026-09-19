@@ -34,6 +34,7 @@ A POT is a knowledge container with a Constitution. Most workflows start with `P
 | GET | `/pots` | List POTs in the workspace. |
 | GET | `/pots/{pot_id}` | Get a POT by UUID. |
 | GET | `/pots/by-slug/{slug}` | Get a POT by slug (workspace from `X-Workspace-ID`). |
+| PATCH | `/pots/{pot_id}` | Change `name`, `description` or `domain` (0.7.9.0+). The description and the domain are the POT context of every extraction prompt, so the change applies from the next ingestion on; facts already extracted are not revisited. A field left out keeps its value; an empty body or any other field (the slug, the constitution) is `422`. |
 | DELETE | `/pots/{pot_id}` | Soft-delete a POT. |
 
 Concept: [Constitution →](/trust-mechanics/constitution).
@@ -122,12 +123,13 @@ Guide: [Fact-level PII →](/guides/pii).
 
 ## Constitution
 
-The axioms — POT Score = 1.0, immutable except via governance.
+The axioms — POT Score = 1.0. They are never edited or deleted: an axiom is added, deactivated or reactivated.
 
 | Method | Path | What it does |
 |---|---|---|
 | GET | `/pots/{pot_id}/constitution/with-edges` | Get the Constitution with all edges between axioms. |
-| POST | `/pots/{pot_id}/constitution/facts` | Add a new Constitutional axiom (Human Curator action). |
+| POST | `/pots/{pot_id}/constitution/facts` | Add a new Constitutional axiom (Human Curator action). At most 10 active axioms per POT. |
+| PATCH | `/pots/{pot_id}/constitution/facts/{axiom_id}` | `{"active": false, "reason": "..."}` deactivates an axiom, `{"active": true}` reactivates it (0.7.6.0+). A deactivated axiom stays stored (`GET /pots/{pot_id}` lists it with `active: false`) but extraction, deduplication, retrieval, edge detection and score propagation skip it, and its edges are hidden. `409` when reactivating would exceed 10 active. |
 
 Concept: [Constitution →](/trust-mechanics/constitution).
 

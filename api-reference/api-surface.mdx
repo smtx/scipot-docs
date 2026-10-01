@@ -63,8 +63,8 @@ Two ingestion modes: inline text (JSON body) and file upload (multipart, with au
 | Method | Path | What it does |
 |---|---|---|
 | POST | `/pots/{pot_id}/ingest` | Ingest raw text into a POT. Async, returns `job_id`. 100 KB inline cap. Optional `profile_id`. |
-| POST | `/documents/upload` | Upload a file (PDF, DOCX, PPTX, XLSX, HTML, MD, TXT) — auto-converted to Markdown. Default 50 MB. |
-| POST | `/pots/{pot_id}/extract-from-document` | Re-extract facts from a stored document into a (different) POT. Accepts `context_attachment_ids` for explicit-scope extraction and `profile_id`. |
+| POST | `/documents/upload` | Upload a file (PDF, DOCX, PPTX, XLSX, HTML, MD, TXT) — auto-converted to Markdown. Default 50 MB. A Markdown you converted yourself can carry its original's `original_filename`, `original_sha256` and `converter` (form fields, `0.7.31.0`): duplicates are then decided by the original, and facts cite its name. |
+| POST | `/pots/{pot_id}/extract-from-document` | Re-extract facts from a stored document into a (different) POT. Accepts `context_attachment_ids` for explicit-scope extraction, `profile_id`, and an `idempotency_key` (`0.7.31.0`: a repeat answers the job already queued, `replayed: true`). |
 | POST | `/pots/{pot_id}/extract/preview` | Run the extraction pipeline on a text **synchronously, persisting nothing**, and return the facts it would create. Stored (`profile_id`) or inline (`profile`) profile. 12 288 chars, 45 s. |
 | GET | `/documents` | List documents in the workspace (pagination via cursor). |
 | GET | `/documents/{document_id}` | Document metadata + full content + extraction history. |

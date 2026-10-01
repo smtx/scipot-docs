@@ -18,6 +18,22 @@ _Changes in flight on `main` but not yet tagged._
 
 ---
 
+## 0.7.31.0 — 2026-10-01
+
+_For integrators that convert documents to Markdown on their side, and for retries that must not run an extraction twice._
+
+### Added
+
+- **`POST /documents/upload` takes three form fields about the original of a Markdown you converted yourself**: `original_filename`, `original_sha256` and `converter`. They are stored on the document and listed by `GET /documents`; facts extracted from it cite the original's name. Malformed fields, a hash without a converter, or the fields with a file the server converts itself are a `422 INVALID_ORIGINAL_METADATA`, and nothing is stored. The name is normalised (NFC) and refuses control and bidirectional characters. See [Errors → Document upload](/api-reference/errors#document-upload) and the [advanced quickstart](/get-started/quickstart-advanced#document-size-choose-the-right-pipeline).
+- **`idempotency_key` on `POST /pots/{pot_id}/extract-from-document`.** A repeat with the same key for the same POT and document answers `202` with the job the first request queued and `replayed: true` on the response, instead of queuing (and billing) a second extraction. The same key for another POT or document is a `409 IDEMPOTENCY_KEY_REUSED`; a key whose job is not readable yet (another request is queuing it) is a `409 EXTRACTION_IN_FLIGHT` with `Retry-After`, to be repeated as it is. See [Errors → Extraction from a stored document](/api-reference/errors#extraction-from-a-stored-document).
+
+### Changed
+
+- **Duplicate uploads are decided by key, not by listing the workspace.** The `409 DOCUMENT_DUPLICATE` used to compare against the first page of the workspace's documents, so a workspace past that page took duplicates without a word, and two identical uploads racing both passed. An upload that names its original is a duplicate when a stored document came from that same original, whatever its Markdown; any other upload when a stored document holds the same bytes, as before; a file the server converted and your own conversion of the same file are one document whichever arrives first, even at the same moment. The `409` gains `detail.duplicate_of` (`content` or `original`) and, for an original, `detail.converter`; its `message` for a duplicate by content is unchanged. The first upload to a workspace after this release indexes the documents already stored, once; uploads arriving while that runs wait for it (a few seconds at most).
+- **A storage failure while deciding a duplicate or an idempotency key is a `503` with `Retry-After`**, never a `500`: retry the same request.
+
+---
+
 ## 0.7.4.0 — 2026-09-18
 
 _What the knowledge-gap loop needs to run unattended: a gap signal that off-topic axioms cannot hide, a job result that says whether its facts are searchable, a duplicate upload you can act on, and a gap create that cannot fork._

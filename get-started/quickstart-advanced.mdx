@@ -167,6 +167,26 @@ curl -X POST "$SCIPOT_BASE/pots/$POT_ID/extract-from-document" \
 
 The same uploaded document can be extracted into multiple POTs — useful when one source memo is canonical knowledge for several brains.
 
+**Converting on your side.** If you already turn documents into Markdown (your own pipeline, or a deployment that converts nothing), upload the Markdown and tell the API about the original with three form fields (`0.7.31.0`): `original_filename`, `original_sha256` (the original file's SHA-256) and `converter` (a short label of what produced the Markdown). The API then behaves as if it had received the original: duplicates are decided by the original's hash, not by the Markdown (the same PDF converted twice, or by two converter versions, is one document), facts cite the original's name, and the `409 DOCUMENT_DUPLICATE` answers `duplicate_of: "original"` with the stored `converter`. Add an `idempotency_key` to the extraction so a retry after a lost answer returns the job already queued (`replayed: true`) instead of running it twice:
+
+```bash
+curl -X POST "$SCIPOT_BASE/documents/upload" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE" \
+  -F "file=@./converted/return-policy.md;type=text/markdown" \
+  -F "original_filename=return-policy.pdf" \
+  -F "original_sha256=$(shasum -a 256 ./policies/return-policy.pdf | cut -d' ' -f1)" \
+  -F "converter=acme-docs-pipeline/2.1"
+
+curl -X POST "$SCIPOT_BASE/pots/$POT_ID/extract-from-document" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $SCIPOT_WORKSPACE" \
+  -H "Content-Type: application/json" \
+  -d '{"document_id": "01971...", "idempotency_key": "return-policy-v2-into-support"}'
+```
+
+The three fields fit Markdown and text uploads only; with a file the server converts itself they are a `422 INVALID_ORIGINAL_METADATA`. See [Errors → Document upload](/api-reference/errors#document-upload).
+
 ## What to log
 
 Three values that turn a support ticket from 30 minutes to 2 minutes:

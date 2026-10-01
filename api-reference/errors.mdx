@@ -247,11 +247,24 @@ Codes introduced with the [fact-level PII layer](/guides/pii) (`0.5.4.0`).
 
 ### Document upload
 
-`POST /documents/upload` answers a duplicate in the **`detail` shape**, not the `error` envelope: `{"detail": {"code", "message", "document_id"}}`.
+`POST /documents/upload` answers a duplicate in the **`detail` shape**, not the `error` envelope: `{"detail": {"code", "message", "document_id", "duplicate_of", "converter"}}`. Its other refusals use the envelope.
 
 | Code | HTTP | Cause | Fix | Retryable |
 |---|---|---|---|---|
-| `DOCUMENT_DUPLICATE` | 409 | The workspace already holds a document with the same content (SHA-256). `detail.document_id` is that document. `detail.message` keeps the pre-`0.7.4.0` sentence `Document with same content already exists: <id>` for one more release, so a parser that read the id out of the message still works; move it to `detail.document_id` before `0.8`. A document an older version left in `conversion_status: failed` does not count. | Do not re-upload. Extract from the existing document: `POST /pots/{pot_id}/extract-from-document` with `detail.document_id`. | No |
+| `DOCUMENT_DUPLICATE` | 409 | The workspace already holds this document. `detail.duplicate_of` (`0.7.31.0`) says how it was decided: `content`, the same bytes (SHA-256); or `original`, an upload that named its original (`original_sha256`) matched a stored document made from that same original, whatever its Markdown, and `detail.converter` is what produced the stored one. `detail.document_id` is that document. For `content`, `detail.message` keeps the pre-`0.7.4.0` sentence `Document with same content already exists: <id>` for one more release, so a parser that read the id out of the message still works; move it to `detail.document_id` before `0.8`. A document an older version left in `conversion_status: failed` does not count. | Do not re-upload. Extract from the existing document: `POST /pots/{pot_id}/extract-from-document` with `detail.document_id`. To replace a stored Markdown with a better conversion of the same original, delete the document and upload again. | No |
+| `INVALID_ORIGINAL_METADATA` | 422 | One of the optional form fields that describe the original of a Markdown you converted yourself (`original_filename`, `original_sha256`, `converter`; `0.7.31.0`) is malformed: a hash that is not 64 hex characters, a name that is empty, over 500 characters or carries control or bidirectional characters, a converter label outside `[A-Za-z0-9._/+-]`, an `original_sha256` without a `converter`, or the fields sent with a file the server converts itself (PDF, Office, HTML, CSV). Nothing was stored. | Fix the field; send the three only with Markdown or text. | No |
+| *(no code)* | 503 | The storage that holds the duplicate index could not be read or written. Nothing was stored. Plain `detail`, with `Retry-After`. | Retry the same upload after `Retry-After` seconds. | Yes |
+
+### Extraction from a stored document
+
+`POST /pots/{pot_id}/extract-from-document` takes an optional `idempotency_key` (`0.7.31.0`; 1–128 characters of `[A-Za-z0-9._:-]`, unique per workspace). A repeat with the same key for the same POT and document answers `202` with the job the first request queued and `replayed: true`, instead of queuing (and billing) a second extraction. Two refusals, in the `detail` shape:
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `IDEMPOTENCY_KEY_REUSED` | 409 | The key was already used in this workspace for another POT or another document. | Use a new key; one per extraction you mean to run (a hash of document, POT and profile works). | No |
+| `EXTRACTION_IN_FLIGHT` | 409 | The key is reserved but its job is not readable yet: another request with the same key is queuing it right now. Carries `Retry-After`. | Repeat the same request after `Retry-After` seconds; it answers with that job and `replayed: true`. | Yes |
+
+A `503` with `Retry-After` on this route means the job queue, or the storage that holds the keys and jobs, could not be reached; nothing new was queued, retry the same request.
 
 ### Knowledge gaps
 

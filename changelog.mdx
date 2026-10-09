@@ -18,6 +18,22 @@ _Changes in flight on `main` but not yet tagged._
 
 ---
 
+## 0.7.39.0 — 2026-10-09
+
+_Storage counts what is stored._
+
+### Fixed
+
+- **Uploads now count toward workspace storage.** Before, only `POST /pots/{pot_id}/ingest` counted, and in characters. An upload counts the original plus its converted Markdown (a file stored as it arrives counts once) and returns `stored_bytes`; `/ingest` counts UTF-8 bytes. See [What counts as storage](/get-started/authentication#what-counts-as-storage).
+- **Checked before anything is written.** An upload over the limit answers `429 QUOTA_STORAGE_EXCEEDED` with nothing stored, and two racing uploads cannot both pass.
+- **Deleting a document gives its bytes back** (the cascade response reports `storage_bytes_released`). Deleting a POT frees nothing: documents belong to the workspace.
+
+### Changed
+
+- **Every workspace's storage counter starts from zero with this release.** Documents stored before it don't count, and deleting them gives nothing back.
+
+---
+
 ## 0.7.37.0 — 2026-10-09
 
 _Paid plans get the storage they should have had._

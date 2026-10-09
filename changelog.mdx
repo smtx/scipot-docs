@@ -16,6 +16,10 @@ This page is the public record of the API's releases and is updated on every rel
 
 _Changes in flight on `main` but not yet tagged._
 
+### Changed
+
+- **Self-serve signup starts a 14-day trial instead of a free tier.** No card; 10M tokens, 1 workspace, 3 POTs and 100 MB for the whole trial. When it ends, every request other than a `GET` returns `402 TRIAL_EXPIRED` (billing endpoints excepted) and data is kept for 30 days. Existing free-tier accounts get 14 days from the release date. See [What the trial includes](/get-started/authentication#what-the-trial-includes).
+
 ---
 
 ## 0.7.35.0 — 2026-10-09

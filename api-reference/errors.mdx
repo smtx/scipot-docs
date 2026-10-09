@@ -189,7 +189,8 @@ Codes are stable across versions. We never repurpose a code; we may add new ones
 | `QUOTA_DOCUMENTS_EXCEEDED` | 429 | Documents-per-POT limit reached. | Archive old documents or upgrade. |
 | `QUOTA_POTS_EXCEEDED` | 429 | POTs-per-workspace limit reached. | Delete unused POTs or upgrade. |
 | `TOKEN_QUOTA_EXCEEDED` | 429 | Monthly token quota reached (every call that runs a model counts). | Buy a top-up, upgrade, or wait for the next month. |
-| `WORKSPACE_LIMIT_REACHED` | 403 | `POST /integrator/workspaces` beyond your plan's active workspaces (1 on the free plan). | Delete a workspace or upgrade. |
+| `WORKSPACE_LIMIT_REACHED` | 403 | `POST /integrator/workspaces` beyond your plan's active workspaces (1 on the trial). | Delete a workspace or upgrade. |
+| `TRIAL_EXPIRED` | 402 | The 14-day trial has ended. Only `GET` requests and the billing endpoints still work. | Upgrade with `POST /integrator/billing/checkout`. Your data is kept for 30 days. |
 
 ### LLM (`LLM_*`) — retryable when noted
 

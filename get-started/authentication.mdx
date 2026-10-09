@@ -90,9 +90,9 @@ Self-serve signup is open and needs no card. You'll receive a verification email
       "slug": "default",
       "is_active": true,
       "quotas": {
-        "max_pots": 5,
-        "max_documents_per_pot": 50,
-        "max_storage_bytes": 52428800
+        "max_pots": 3,
+        "max_documents_per_pot": 9999,
+        "max_storage_bytes": 104857600
       },
       "usage": { "pots_count": 0, "documents_count": 0, "storage_bytes": 0 }
     }
@@ -118,6 +118,14 @@ The trial lasts **14 days from the moment your email is verified** and needs no 
 | Fact-level PII | Not available |
 
 The limits are your plan's, and your own key cannot raise them: raising a workspace's quota above the plan (`PATCH /integrator/workspaces/{id}/quotas`), adding tokens to it yourself (`POST /integrator/workspaces/{id}/token-topup`) or switching a premium feature on (PII) answers `403`. Upgrading to a paid plan raises them.
+
+Storage is counted per workspace, and every plan sets its own:
+
+| | Trial | Startup | Growth | Scale |
+|---|---|---|---|---|
+| Storage per workspace | 100 MB | 1 GB | 5 GB | 20 GB |
+
+A plan change resizes every workspace you already have, up or down. Moving to a plan with less storage deletes nothing: new ingestion answers `429 QUOTA_STORAGE_EXCEEDED` until the workspace fits again.
 
 When a limit is hit, the API answers `429 Too Many Requests` with a structured `code`: `QUOTA_POTS_EXCEEDED`, `QUOTA_STORAGE_EXCEEDED` or `TOKEN_QUOTA_EXCEEDED`. Creating a workspace beyond your plan answers `403 WORKSPACE_LIMIT_REACHED`. See [Errors](/api-reference/errors).
 

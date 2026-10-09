@@ -174,6 +174,9 @@ Almost none. Hover changes background or colour in 120ms. The certainty dial red
 
 ## Components
 
+### Wordmark
+`SCIPOT` in JetBrains Mono 700, tracking .02em, ink on paper (paper on ink in dark). In HTML it is live text; as a file it is outlined to SVG paths (`scipot-docs/logo/light.svg`, `dark.svg`), so it renders without the font.
+
 ### Top strip
 Sticky, 48px, paper, 1px ink border below, mono 12px. Left: `SCIPOT` bold + `/section` in ink-faint. Right: section links (ink-faint, ink on hover/active), then the language toggle or the primary action. On mobile the links hide.
 

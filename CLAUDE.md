@@ -12,16 +12,14 @@ Sister surface: **scipot.ai** (the marketing landing) lives in the `scipot-landi
 
 **Before editing any user-facing surface (MDX pages, `docs.json`, copy, layout), read [DESIGN.md](DESIGN.md).**
 
-DESIGN.md is the source of truth for:
+DESIGN.md (v2, 2026-10-09, "The page is a Knowledge Pot", the system of the investor pitch) is the source of truth for:
 
-- Typography (Cormorant Garamond italic for display emphasis only; DM Sans body; JetBrains Mono for code AND all numeric trust signals)
-- Color tokens (the existing dark palette + the POT Score semantic scale + the contradiction flag scale)
-- Spacing (4px base, comfortable density)
-- Layout (sidebar-left docs; asymmetric hero on landing)
-- Motion (minimal-functional; one choreographed POT Score badge entrance)
+- Typography (Bricolage Grotesque for display; DM Sans body; JetBrains Mono for code, labels AND all numeric trust signals)
+- Colour (paper and ink, light by default with a derived dark theme; colour only for POT Score levels and gaps; `docs.json` primary is ink)
+- Layout (no radius, no shadows, rules instead of boxes; Mintlify's sidebar and TOC kept)
 - Voice rules (builder voice; forbidden vocabulary list; canonical lines)
-- The Fact Receipt component (the visual signature of SciPot — appears on every fact-bearing surface)
-- Anti-patterns (the slop blacklist: no purple, no gradient CTAs, no bubble-radius, no 3-column SaaS feature grids)
+- Components: fact rows and gap rows, rendered in MDX with `<Fact>` / `<Gap>` from `snippets/fact.jsx` (`import { Fact } from '/snippets/fact.jsx';`), styled by `style.css`
+- Anti-patterns (the slop blacklist: no purple, no gradients, no icon-card grids, no emoji)
 
 Any change that deviates from DESIGN.md needs an explicit decision in the user's chat and an entry in DESIGN.md's "Decisions log" section before shipping.
 
@@ -52,7 +50,9 @@ because merging to `main` deploys straight to docs.scipot.ai.
 ## File structure
 
 ```
-docs.json                       # Mintlify config — nav, theme colors, OpenAPI source, anchors
+docs.json                       # Mintlify config — nav, theme colors, fonts, OpenAPI source, anchors
+style.css                       # Theme overrides from DESIGN.md v2 (radius 0, rules, mono labels, fact rows)
+snippets/fact.jsx               # <Fact> and <Gap> components
 welcome.mdx                     # Hero / Welcome
 big-picture/                    # Why / How different / When to use SciPot
 get-started/                    # Quickstart + Authentication
@@ -76,7 +76,7 @@ README.md                       # public-facing repo overview
 1. Read DESIGN.md voice section first. Match the register (builder voice; no forbidden vocabulary; numbers in prose).
 2. Add the page's MDX file at the right path.
 3. Register it in `docs.json` under `navigation`.
-4. If it shows a fact, score, or source, render a Fact Receipt component (see DESIGN.md anatomy).
+4. If it shows a fact, score, or source, render it with `<Fact score={…} title="…" source="…" />` (and `<Gap>` for an open question). Never hand-draw a score.
 5. `npx mint@latest dev` to verify rendering before commit.
 6. `npx mint@latest broken-links` — the same check CI runs on the PR.
 

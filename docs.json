@@ -3,9 +3,9 @@
   "theme": "mint",
   "name": "SciPot",
   "colors": {
-    "primary": "#10b981",
-    "light": "#34d399",
-    "dark": "#10b981"
+    "primary": "#0c0c0d",
+    "light": "#f1f1ec",
+    "dark": "#0c0c0d"
   },
   "favicon": "/logo/favicon.png",
   "navigation": {
@@ -93,8 +93,8 @@
     ]
   },
   "logo": {
-    "light": "/logo/light.png",
-    "dark": "/logo/dark.png",
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg",
     "href": "https://scipot.ai"
   },
   "api": {
@@ -111,13 +111,13 @@
     }
   },
   "appearance": {
-    "default": "dark",
+    "default": "light",
     "strict": false
   },
   "background": {
     "color": {
-      "light": "#fafaf9",
-      "dark": "#0a0a0b"
+      "light": "#fbfbf8",
+      "dark": "#0e0e0f"
     }
   },
   "navbar": {
@@ -135,8 +135,8 @@
   },
   "seo": {
     "metatags": {
-      "title": "SciPot — The trust layer between your data and AI Agents",
-      "description": "Build Company Brains your AI Agents can trust. Every fact has a score. Every score has a source. Every contradiction is flagged.",
+      "title": "SciPot — Knowledge your AI can trust",
+      "description": "SciPot is the trust layer for AI knowledge. Every fact has a score. Every score has a source. Every contradiction is flagged.",
       "og:image": "/images/og-default.png"
     },
     "indexing": "navigable"
@@ -164,8 +164,8 @@
   },
   "fonts": {
     "heading": {
-      "family": "Cormorant Garamond",
-      "weight": 500
+      "family": "Bricolage Grotesque",
+      "weight": 600
     },
     "body": {
       "family": "DM Sans",

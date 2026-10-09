@@ -4,6 +4,9 @@ sidebarTitle: "POT Score & Provenance"
 description: "Every fact has a score. Every score has a source. Here's exactly how the system computes both, propagates one through the other, and lets you query against either."
 ---
 
+import { Fact } from '/snippets/fact.jsx';
+
+
 POT Score (Proof of Truth) is the numeric certainty layer SciPot applies to every fact. It's a calibrated 0.0–1.0 value that propagates through the knowledge graph, gets demoted by contradictions, gets boosted by independent corroboration, and decays over time for facts that have time-sensitivity built in.
 
 Every score is anchored to **provenance**: a structured record of where the fact came from, what extraction method produced it, who approved it (if anyone), and when it was last validated. Score and provenance are not separate concerns — a score without provenance is just a number, and a provenance without a score is metadata. Together, they're the receipt your agent (or you) needs to decide whether to act on a fact.
@@ -53,6 +56,14 @@ When you're explaining POT Score to humans (your team, your investors, your end-
 | 0.50–0.84 | **EXTRACTED** | Extracted from a documented source with clear provenance. Reliability depends on source quality. |
 | 0.30–0.49 | **INFERRED** | Derived by automated reasoning or edge propagation. Useful as a working hypothesis. |
 | 0.00–0.29 | **PENDING** | Recently ingested, awaiting classification. Available for retrieval but marked unverified. |
+
+What each level looks like on a fact:
+
+<Fact score={1} title="Every price we publish includes VAT." source="constitution · set by a human curator" />
+<Fact score={0.92} title="Enterprise pricing floor is $25K ARR." source="pricing-decisions.md §3.2 · approved by the CFO · supported by 2 facts" />
+<Fact score={0.62} title="Enterprise deals start at $20K ARR." source="sales-deck-2025.pptx, slide 14" flag="contradicts the fact above" />
+<Fact score={0.41} title="Customers above $25K ARR renew at a higher rate." source="inferred from 3 facts · derives_from edges" />
+<Fact score={0.12} title="A usage-based enterprise tier is under discussion." source="meeting-notes-2026-09-30.md · not yet supported" />
 
 <Note>
 **Two tables, same idea.** The API enum returned in `fact.level` uses a **6-tier internal model** that splits PENDING into HYPOTHESIS (0.20–0.39) and SPECULATION (0.00–0.19), and renames EXTRACTED → SUPPORTED with a finer threshold. The two views are intentional: humans read the 5-tier model; APIs return the 6-tier enum. The exact mapping:

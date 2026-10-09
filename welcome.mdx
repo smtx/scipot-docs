@@ -1,29 +1,27 @@
 ---
-title: "The trust layer between your data and AI Agents"
+title: "Knowledge your AI can trust"
 sidebarTitle: "Welcome"
-description: "Build Company Brains your AI Agents can trust. Every fact has a score. Every score has a source. Every contradiction is flagged."
+description: "SciPot is the trust layer for AI knowledge. Every fact has a score. Every score has a source. Every contradiction is flagged."
 mode: "wide"
 ---
 
-<Card title="Fact Receipt" icon="receipt">
-**Enterprise pricing floor is $25K ARR.**
+import { Fact } from '/snippets/fact.jsx';
 
-| | |
-|---|---|
-| **POT Score** | `0.95` — VERIFIED |
-| **Source** | `pricing-decisions.md` §3.2 — CFO approved · 2026-02-14 |
-| **Edges** | `◉` supports 2 facts &nbsp;·&nbsp; `◯` no contradictions |
-
-</Card>
+<div className="sp-response not-prose">
+  <div className="sp-response-head"><b>{"POST /pots/{pot_id}/query"}</b><span>{"“What is our enterprise pricing floor?”"}</span></div>
+  <Fact score={0.95} title="Enterprise pricing floor is $25K ARR." source="pricing-decisions.md §3.2 · approved by the CFO · 2026-02-14 · supported by 2 facts" />
+  <Fact score={0.55} title="Enterprise deals start at $20K ARR." source="sales-deck-2025.pptx, slide 14" flag="contradicts the fact above · flagged for a curator" />
+  <div className="sp-response-foot"><b>is_knowledge_gap: false</b><span>· 2 facts · 1 contradiction</span></div>
+</div>
 
 <CardGroup cols={3}>
-  <Card title="Try in Colab" icon="rocket" href="https://colab.research.google.com/gist/smtx/b0dceb963d3efabfa8fdd9fbf1772729">
+  <Card title="Try in Colab" href="https://colab.research.google.com/gist/smtx/b0dceb963d3efabfa8fdd9fbf1772729">
     Zero setup — open the notebook, sign up, hit the API. The fastest path from "what is this?" to "I've used it."
   </Card>
-  <Card title="Build in 5 min" icon="code" href="/get-started/quickstart">
+  <Card title="Build in 5 min" href="/get-started/quickstart">
     Curl, JavaScript, or Python — pick your stack and ship an agent with persistent, scored memory.
   </Card>
-  <Card title="Why SciPot exists" icon="book-open" href="/big-picture/why-scipot-exists">
+  <Card title="Why SciPot exists" href="/big-picture/why-scipot-exists">
     The thesis: organizational intelligence doesn't accumulate — it evaporates. Memory is what's missing.
   </Card>
 </CardGroup>
@@ -32,7 +30,7 @@ mode: "wide"
 
 ## What is SciPot?
 
-SciPot is a **trust layer for agent memory**. You feed it documents, conversations, and structured data. It transforms them into **POTs** — Knowledge Pots — where every fact carries a numeric POT Score (Proof of Truth), every score traces to a source, and every contradiction is detected and flagged.
+SciPot is the **trust layer for AI knowledge**. You feed it documents, conversations, and structured data. It transforms them into **POTs** — Knowledge Pots — where every fact carries a numeric POT Score (Proof of Truth), every score traces to a source, and every contradiction is detected and flagged.
 
 Your AI agents query SciPot and receive answers with **receipts**: cited facts, certainty levels, and an epistemic briefing of what the answer is confident about versus where coverage is thin.
 
@@ -54,14 +52,14 @@ Response includes the synthesized answer, the facts used, their POT Scores, sour
 
 | | Vector stores (Pinecone, etc.) | Memory layers (Mem0, Zep) | **SciPot** |
 |---|:-:|:-:|:-:|
-| Stores chunks of text | ✅ | ✅ | — |
-| Stores extracted **facts** with explicit identity | — | partial | ✅ |
-| Numeric certainty per fact (0.0–1.0) | — | — | ✅ |
-| Source provenance preserved at fact level | — | partial | ✅ |
-| Contradictions detected & flagged | — | — | ✅ |
-| Foundational axioms (Constitution) | — | — | ✅ |
-| Knowledge graph with typed epistemic edges | — | partial | ✅ |
-| Human + Agentic Curator workflow | — | — | ✅ |
+| Stores chunks of text | ✓ | ✓ | — |
+| Stores extracted **facts** with explicit identity | — | partial | ✓ |
+| Numeric certainty per fact (0.0–1.0) | — | — | ✓ |
+| Source provenance preserved at fact level | — | partial | ✓ |
+| Contradictions detected & flagged | — | — | ✓ |
+| Foundational axioms (Constitution) | — | — | ✓ |
+| Knowledge graph with typed epistemic edges | — | partial | ✓ |
+| Human + Agentic Curator workflow | — | — | ✓ |
 
 Full breakdown: [SciPot vs Mem0 / Zep / OpenAI File Search →](/comparisons/vs-mem0-zep-openai-file-search)
 
@@ -70,16 +68,16 @@ Full breakdown: [SciPot vs Mem0 / Zep / OpenAI File Search →](/comparisons/vs-
 ## Start exploring
 
 <CardGroup cols={2}>
-  <Card title="Big Picture" icon="compass" href="/big-picture/why-scipot-exists">
+  <Card title="Big Picture" href="/big-picture/why-scipot-exists">
     Why we built this, how it works, when it's the right tool.
   </Card>
-  <Card title="Trust Mechanics" icon="shield-check" href="/trust-mechanics/pot-score-and-provenance">
+  <Card title="Trust Mechanics" href="/trust-mechanics/pot-score-and-provenance">
     POT Score, Constitution, Curators, contradictions — the moat, explained.
   </Card>
-  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+  <Card title="API Reference" href="/api-reference/introduction">
     Every endpoint, schema, and error code. Auto-generated from OpenAPI.
   </Card>
-  <Card title="Comparisons" icon="bullseye-arrow" href="/comparisons/vs-mem0-zep-openai-file-search">
+  <Card title="Comparisons" href="/comparisons/vs-mem0-zep-openai-file-search">
     Honest tradeoffs vs Mem0, Zep, and OpenAI File Search.
   </Card>
 </CardGroup>

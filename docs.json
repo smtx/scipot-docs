@@ -129,7 +129,7 @@
     ],
     "primary": {
       "type": "button",
-      "label": "Get a free API key",
+      "label": "Start a 14-day trial",
       "href": "/get-started/authentication"
     }
   },

@@ -18,6 +18,23 @@ _Changes in flight on `main` but not yet tagged._
 
 ---
 
+## 0.7.35.0 — 2026-10-09
+
+_The self-serve plans are enforced as published._
+
+### Changed
+
+- **A self-serve integrator's own key works under its plan's limits, never above them.** Lifting a workspace's token quota above the plan (or to unlimited), a `token-topup` that was not paid for, or switching on a premium feature (PII) answers `403` (`QUOTA_ABOVE_INTEGRATOR_CEILING`, `UNLIMITED_QUOTA_NOT_ALLOWED`, `FEATURE_NOT_ALLOWED`). The monthly token quota counts every workspace of the integrator together. Paid top-ups and plan upgrades raise the limit.
+- **`POST /integrator/workspaces` applies the plan.** Beyond the plan's active workspaces (1 on the free plan) it answers `403 WORKSPACE_LIMIT_REACHED`, and a new workspace starts with the plan's quotas instead of unlimited ones. A `503 INTEGRATOR_LIMITS_UNAVAILABLE` means the account could not be read: retry.
+
+### Fixed
+
+- **The free plan's published limits match the API**: 1 workspace, 2 POTs per workspace, 25 MB per workspace, 1,000,000 tokens per month, 60 requests per minute. This page and [Authentication](/get-started/authentication) used to say 5 POTs, 50 documents per POT and 50 MB.
+- **Quota errors are `429`**, as the API has always answered; [Errors](/api-reference/errors) said `402`. The token quota's code is `TOKEN_QUOTA_EXCEEDED`, and `QUOTA_QUERIES_EXCEEDED`, which the API never returns, is gone from the table.
+- **The billing examples in [Authentication](/get-started/authentication)** use the real plan names (`startup`, `growth`, `scale`) and the real top-up body (`token_amount`, at least 100,000).
+
+---
+
 ## 0.7.31.0 — 2026-10-01
 
 _For integrators that convert documents to Markdown on their side, and for retries that must not run an extraction twice._

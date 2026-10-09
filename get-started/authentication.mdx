@@ -125,7 +125,25 @@ Storage is counted per workspace, and every plan sets its own:
 |---|---|---|---|---|
 | Storage per workspace | 100 MB | 1 GB | 5 GB | 20 GB |
 
-A plan change resizes every workspace you already have, up or down. Moving to a plan with less storage deletes nothing: new ingestion answers `429 QUOTA_STORAGE_EXCEEDED` until the workspace fits again.
+A plan change resizes every workspace you already have, up or down. Moving to a plan with less storage deletes nothing: new uploads and ingestion answer `429 QUOTA_STORAGE_EXCEEDED` until the workspace fits again.
+
+### What counts as storage
+
+Storage is the bytes SciPot keeps for your documents, counted when they are stored:
+
+| Call | Counts |
+|---|---|
+| `POST /documents/upload` of a file SciPot converts (PDF, DOCX, PPTX, XLSX, HTML, CSV) | The original file plus the Markdown it was converted to |
+| `POST /documents/upload` of a file stored as it arrives (Markdown, text, JSON, XML, YAML) | The file, once |
+| `POST /pots/{pot_id}/ingest` | The text's UTF-8 bytes (a `€` is 3 bytes, not 1 character) |
+| `POST /pots/{pot_id}/extract-from-document` | Nothing: it reads a document already stored. Extraction draws on your token quota |
+
+The upload response tells you what a document counted, in `stored_bytes`; the workspace total is `usage.storage_bytes`.
+
+- **Checked before anything is written.** An upload that would not fit answers `429 QUOTA_STORAGE_EXCEEDED` and stores nothing. Two uploads racing for the last bytes cannot both pass: one is stored, the other gets the `429`.
+- **Deleting a document gives its bytes back**, with or without `cascade` (the cascade response reports them in `storage_bytes_released`). A rejected duplicate (`409`) or an ingestion job that never stored its document counts nothing.
+- **Deleting a POT frees no storage.** Documents belong to the workspace, not to a POT: delete the documents themselves.
+- **Facts, edges and vectors don't count** toward storage. What they cost you is the tokens spent extracting them.
 
 When a limit is hit, the API answers `429 Too Many Requests` with a structured `code`: `QUOTA_POTS_EXCEEDED`, `QUOTA_STORAGE_EXCEEDED` or `TOKEN_QUOTA_EXCEEDED`. Creating a workspace beyond your plan answers `403 WORKSPACE_LIMIT_REACHED`. See [Errors](/api-reference/errors).
 

@@ -18,6 +18,17 @@ _Changes in flight on `main` but not yet tagged._
 
 ---
 
+## 0.7.37.0 — 2026-10-09
+
+_Paid plans get the storage they should have had._
+
+### Fixed
+
+- **Storage per workspace now grows with the plan: 1 GB on Startup, 5 GB on Growth, 20 GB on Scale** (the trial keeps 100 MB). Paid plans had been created with 25 MB per workspace, less than the trial.
+- **A plan change resizes the storage of your existing workspaces**, on an upgrade and on a downgrade. A workspace above its new limit keeps everything; new ingestion answers `429 QUOTA_STORAGE_EXCEEDED` until it fits. See [What the trial includes](/get-started/authentication#what-the-trial-includes).
+
+---
+
 ## 0.7.36.0 — 2026-10-09
 
 _Self-serve signup starts a trial._

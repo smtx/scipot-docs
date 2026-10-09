@@ -18,6 +18,16 @@ _Changes in flight on `main` but not yet tagged._
 
 ---
 
+## 0.7.36.0 — 2026-10-09
+
+_Self-serve signup starts a trial._
+
+### Changed
+
+- **Self-serve signup starts a 14-day trial instead of a free tier.** No card; 10M tokens, 1 workspace, 3 POTs and 100 MB for the whole trial. When it ends, every request other than a `GET` or `DELETE` returns `402 TRIAL_EXPIRED` (billing endpoints excepted) and data is kept for 30 days. Existing free-tier accounts are held to the trial's limits and their trial ends on 26 October 2026 (UTC). See [What the trial includes](/get-started/authentication#what-the-trial-includes).
+
+---
+
 ## 0.7.35.0 — 2026-10-09
 
 _The self-serve plans are enforced as published._

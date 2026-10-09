@@ -1,7 +1,7 @@
 ---
 title: "Authentication & API Keys"
 sidebarTitle: "Authentication"
-description: "Free self-serve signup in two minutes: register, verify your email, and get an API key you can use immediately. Plus how every authenticated request is shaped."
+description: "Start a 14-day trial in two minutes, no card: register, verify your email, and get an API key you can use immediately. Plus how every authenticated request is shaped."
 ---
 
 SciPot uses API key authentication. Every authenticated request needs two headers:
@@ -13,9 +13,9 @@ X-Workspace-ID: 01971abc-...
 
 The key identifies your **integrator** (your application's identity). The workspace ID identifies which of your tenants the request is for. SciPot's authorization model is multi-tenant by design — every fact, POT, document, and edge is scoped to a workspace, and the workspace boundary is enforced at the storage layer.
 
-## Get a free API key in 2 minutes
+## Start a 14-day trial in 2 minutes
 
-Self-serve signup is open. You'll receive a verification email, click the link, and get your `ik_live_*` key on screen — shown once, copy it before closing the tab.
+Self-serve signup is open and needs no card. You'll receive a verification email, click the link, and get your `ik_live_*` key on screen — shown once, copy it before closing the tab.
 
 <Steps>
   <Step title="Register your email">
@@ -102,25 +102,34 @@ Self-serve signup is open. You'll receive a verification email, click the link, 
   </Step>
 </Steps>
 
-## What the free tier includes
+## What the trial includes
 
-The free plan is for evaluation and small projects. You can call the API as soon as your email is verified, with no billing setup; when you outgrow it, upgrade through Stripe with `POST /integrator/billing/checkout` (no contracts, no sales calls).
+The trial lasts **14 days from the moment your email is verified** and needs no card. It is sized to build and test a real integration, not to run one in production. Upgrade through Stripe via `POST /integrator/billing/checkout` at any point (no contracts, no sales calls).
 
-| Limit | Free plan |
+| | Trial |
 |---|---|
-| Workspaces | 1 active |
-| POTs per workspace | 2 |
-| Storage per workspace | 25 MB cumulative |
-| Tokens | 1,000,000 per month, summed over every call that runs a model (hard limit) |
-| Rate | 60 requests per minute, 3,600 per hour |
+| Duration | 14 days from email verification |
+| Tokens | 10M for the whole trial |
+| Workspaces | 1 |
+| POTs | 3 |
+| Storage | 100 MB cumulative |
+| Rate limit | 60 requests/minute |
+| Token top-ups | Not available: upgrade to a paid plan for more |
+| Fact-level PII | Not available |
 
-The limits are your plan's, and your own key cannot raise them: raising a workspace's quota above the plan (`PATCH /integrator/workspaces/{id}/quotas`), adding tokens to it yourself (`POST /integrator/workspaces/{id}/token-topup`) or switching a premium feature on (PII) answers `403`. Paid top-ups and plan upgrades raise them.
+The limits are your plan's, and your own key cannot raise them: raising a workspace's quota above the plan (`PATCH /integrator/workspaces/{id}/quotas`), adding tokens to it yourself (`POST /integrator/workspaces/{id}/token-topup`) or switching a premium feature on (PII) answers `403`. Upgrading to a paid plan raises them.
 
 When a limit is hit, the API answers `429 Too Many Requests` with a structured `code`: `QUOTA_POTS_EXCEEDED`, `QUOTA_STORAGE_EXCEEDED` or `TOKEN_QUOTA_EXCEEDED`. Creating a workspace beyond your plan answers `403 WORKSPACE_LIMIT_REACHED`. See [Errors](/api-reference/errors).
 
+**When the trial ends**, every request other than a `GET` or a `DELETE` returns `402` with code `TRIAL_EXPIRED`, retrieval included. `GET` endpoints keep working so you can export your facts and documents, `DELETE` so you can remove them, and the billing endpoints so you can upgrade with the same key. Your data is kept for 30 days after the trial ends; upgrade within that window and everything is where you left it.
+
+<Tip>
+Want a brain for yourself rather than an API for your app? [MaBrain](https://mabra.in) is free, with $5 of credit every month.
+</Tip>
+
 ## Multiple workspaces
 
-Each integrator can manage multiple workspaces — one per tenant if you're building a B2B SaaS, one per environment (dev / staging / prod) for personal use, or one per project for an internal Company Brain split across teams. The free plan has 1 active workspace and paid plans have no workspace limit; creating one beyond your plan answers `403 WORKSPACE_LIMIT_REACHED` (delete a workspace or upgrade).
+Each integrator can manage multiple workspaces — one per tenant if you're building a B2B SaaS, one per environment (dev / staging / prod) for personal use, or one per project for an internal Company Brain split across teams. The trial has 1 workspace and paid plans have no workspace limit; creating one beyond your plan answers `403 WORKSPACE_LIMIT_REACHED` (delete a workspace or upgrade).
 
 ```bash
 # List your workspaces
@@ -202,7 +211,7 @@ Until then, to rotate or revoke a key, contact SciPot support with your integrat
 
 A new key is shown **once**. Save it; the server doesn't store it in plaintext. If a key leaks, ask for its revocation immediately.
 
-## Billing & upgrading (when you outgrow the free tier)
+## Billing & upgrading (during or after the trial)
 
 SciPot uses Stripe for self-serve billing. From the same integrator key you can:
 
@@ -219,7 +228,7 @@ curl -X POST "https://api.scipot.ai/integrator/billing/portal" \
   -H "Content-Type: application/json" \
   -d '{"return_url": "https://example.com/account"}'
 
-# Buy additional tokens without a plan change (at least 100,000)
+# Buy additional tokens without a plan change (paid plans only; at least 100,000)
 curl -X POST "https://api.scipot.ai/integrator/billing/token-topup" \
   -H "X-API-Key: $SCIPOT_KEY" \
   -H "Content-Type: application/json" \

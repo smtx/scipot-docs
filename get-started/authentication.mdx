@@ -121,7 +121,7 @@ The limits are your plan's, and your own key cannot raise them: raising a worksp
 
 When a limit is hit, the API answers `429 Too Many Requests` with a structured `code`: `QUOTA_POTS_EXCEEDED`, `QUOTA_STORAGE_EXCEEDED` or `TOKEN_QUOTA_EXCEEDED`. Creating a workspace beyond your plan answers `403 WORKSPACE_LIMIT_REACHED`. See [Errors](/api-reference/errors).
 
-**When the trial ends**, every request other than a `GET` returns `402` with code `TRIAL_EXPIRED`, retrieval included. `GET` endpoints keep working so you can export your facts and documents, and so do the billing endpoints, so you can upgrade with the same key. Your data is kept for 30 days after the trial ends; upgrade within that window and everything is where you left it.
+**When the trial ends**, every request other than a `GET` or a `DELETE` returns `402` with code `TRIAL_EXPIRED`, retrieval included. `GET` endpoints keep working so you can export your facts and documents, `DELETE` so you can remove them, and the billing endpoints so you can upgrade with the same key. Your data is kept for 30 days after the trial ends; upgrade within that window and everything is where you left it.
 
 <Tip>
 Want a brain for yourself rather than an API for your app? [MaBrain](https://mabra.in) is free, with $5 of credit every month.

@@ -104,20 +104,23 @@ Self-serve signup is open. You'll receive a verification email, click the link, 
 
 ## What the free tier includes
 
-The default workspace ships with quotas calibrated for evaluation and small projects. You can hit the API immediately without billing setup; if you outgrow the free quotas, upgrade through Stripe via `POST /integrator/billing/checkout` (no contracts, no sales calls).
+The free plan is for evaluation and small projects. You can call the API as soon as your email is verified, with no billing setup; when you outgrow it, upgrade through Stripe with `POST /integrator/billing/checkout` (no contracts, no sales calls).
 
-| Quota | Default |
+| Limit | Free plan |
 |---|---|
-| POTs per workspace | 5 |
-| Documents per POT | 50 |
-| Storage per workspace | 50 MB cumulative |
-| Token quota | Free tier monthly allowance (raise via top-up or plan upgrade) |
+| Workspaces | 1 active |
+| POTs per workspace | 2 |
+| Storage per workspace | 25 MB cumulative |
+| Tokens | 1,000,000 per month, summed over every call that runs a model (hard limit) |
+| Rate | 60 requests per minute, 3,600 per hour |
 
-When a quota is hit, the API returns `429 Too Many Requests` with a structured `code` (e.g., `QUOTA_POTS_EXCEEDED`, `QUOTA_STORAGE_EXCEEDED`, `QUOTA_TOKENS_EXCEEDED`). See [Errors](/api-reference/errors).
+The limits are your plan's, and your own key cannot raise them: raising a workspace's quota above the plan (`PATCH /integrator/workspaces/{id}/quotas`), adding tokens to it yourself (`POST /integrator/workspaces/{id}/token-topup`) or switching a premium feature on (PII) answers `403`. Paid top-ups and plan upgrades raise them.
+
+When a limit is hit, the API answers `429 Too Many Requests` with a structured `code`: `QUOTA_POTS_EXCEEDED`, `QUOTA_STORAGE_EXCEEDED` or `TOKEN_QUOTA_EXCEEDED`. Creating a workspace beyond your plan answers `403 WORKSPACE_LIMIT_REACHED`. See [Errors](/api-reference/errors).
 
 ## Multiple workspaces
 
-Each integrator can manage multiple workspaces — one per tenant if you're building a B2B SaaS, one per environment (dev / staging / prod) for personal use, or one per project for an internal Company Brain split across teams.
+Each integrator can manage multiple workspaces — one per tenant if you're building a B2B SaaS, one per environment (dev / staging / prod) for personal use, or one per project for an internal Company Brain split across teams. The free plan has 1 active workspace and paid plans have no workspace limit; creating one beyond your plan answers `403 WORKSPACE_LIMIT_REACHED` (delete a workspace or upgrade).
 
 ```bash
 # List your workspaces
@@ -204,21 +207,23 @@ A new key is shown **once**. Save it; the server doesn't store it in plaintext. 
 SciPot uses Stripe for self-serve billing. From the same integrator key you can:
 
 ```bash
-# Open a Stripe Checkout to upgrade your plan
+# Open a Stripe Checkout to upgrade your plan: startup, growth or scale
 curl -X POST "https://api.scipot.ai/integrator/billing/checkout" \
   -H "X-API-Key: $SCIPOT_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"plan": "pro"}'
+  -d '{"plan": "startup", "success_url": "https://example.com/ok", "cancel_url": "https://example.com/cancel"}'
 
 # Open the Stripe Customer Portal (manage cards, invoices, downgrade)
 curl -X POST "https://api.scipot.ai/integrator/billing/portal" \
-  -H "X-API-Key: $SCIPOT_KEY"
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"return_url": "https://example.com/account"}'
 
-# Buy additional token quota without a plan change
+# Buy additional tokens without a plan change (at least 100,000)
 curl -X POST "https://api.scipot.ai/integrator/billing/token-topup" \
   -H "X-API-Key: $SCIPOT_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"amount_usd": 10}'
+  -d '{"token_amount": 1000000, "success_url": "https://example.com/ok", "cancel_url": "https://example.com/cancel"}'
 ```
 
 Each call returns a Stripe-hosted URL. Redirect the user there; SciPot listens to `POST /billing/webhook` for subscription state changes.

@@ -146,7 +146,7 @@ The Quickstart uses `POST /pots/{pot_id}/ingest` (raw text in JSON body, **100 K
 |---|---|---|---|
 | Raw text in memory (snippets, ADR bodies, conversation summaries) | `POST /pots/{pot_id}/ingest` | **100 KB** | Returns 422 on oversize |
 | File (PDF, DOCX, PPTX, XLSX, HTML, MD, TXT) | `POST /documents/upload` then `POST /pots/{pot_id}/extract-from-document` | **50 MB** default (configurable) | MarkItDown auto-converts to Markdown; extraction is async |
-| Workspace cumulative | (enforced server-side) | Your plan's storage per workspace (**25 MB** on the free plan) | Returns 429 with `QUOTA_STORAGE_EXCEEDED` |
+| Workspace cumulative | (enforced server-side) | Your plan's storage per workspace (**100 MB** on the trial) | Returns 429 with `QUOTA_STORAGE_EXCEEDED` |
 
 Two-step file upload pattern:
 

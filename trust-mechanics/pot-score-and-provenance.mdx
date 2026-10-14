@@ -7,7 +7,7 @@ description: "Every fact has a score. Every score has a source. Here's exactly h
 import { Fact } from '/snippets/fact.jsx';
 
 
-POT Score (Proof of Truth) is the numeric certainty layer SciPot applies to every fact. It's a calibrated 0.0–1.0 value that propagates through the knowledge graph, gets demoted by contradictions, gets boosted by independent corroboration, and decays over time for facts that have time-sensitivity built in.
+POT Score (Proof of Truth) is the numeric certainty layer SciPot applies to every fact. It's a calibrated 0.0–1.0 value that propagates through the knowledge graph, gets demoted by contradictions, gets boosted by independent corroboration. Time does not lower it: whether a fact is still in force is a [separate field](/trust-mechanics/validity).
 
 Every score is anchored to **provenance**: a structured record of where the fact came from, what extraction method produced it, who approved it (if anyone), and when it was last validated. Score and provenance are not separate concerns — a score without provenance is just a number, and a provenance without a score is metadata. Together, they're the receipt your agent (or you) needs to decide whether to act on a fact.
 
@@ -112,6 +112,24 @@ authority_boost     = 0.10
 initial_score       = min(0.50 + 0.10 + 0.10, 0.99) = 0.70 → EXTRACTED
 ```
 
+### The kind of source sets the starting score
+
+Since API `0.7.43.0` a document can say what kind of source it is: `source.source_authority` on `/ingest`, `source_authority` on `/extract-from-document`. The value is a key of the POT's own [source types](/trust-mechanics/constitution#source-types), and that type's weight is the starting score of every fact extracted from the document. It wins over a profile's `initial_pot_score`; omitted, the start stays 0.50.
+
+A POT that never edited its source types reads this template:
+
+| Key | Weight | Starts at |
+|---|---|---|
+| `law` | 0.65 | SUPPORTED |
+| `regulation` | 0.62 | SUPPORTED |
+| `official_guidance` | 0.52 | INFERRED |
+| `expert` | 0.52 | INFERRED |
+| `press_note` | 0.45 | INFERRED |
+| `secondary` | 0.45 | INFERRED |
+| `web` | 0.42 | INFERRED |
+
+Weights are bounded to 0.20–0.79, so no kind of source reaches VERIFIED alone: that still takes several sources or a person. Every fact records the key and the weight it started with (`provenance.sources[0].authority`, `.authority_weight`). Changing a type's weight later moves, by the difference, every fact that started with it, except curated and endorsed facts; the recompute runs as a job (`job_id` in the response).
+
 ## Score propagation through edges
 
 POT Scores aren't static. They propagate through the knowledge graph via typed epistemic edges. The four mechanics:
@@ -178,7 +196,10 @@ provenance: {
     page?: number,
     reliability: "high" | "medium" | "low",
     author?: string,
-    date?: string
+    date?: string,
+    authority?: string,                // source type key the fact started with (0.7.43.0+)
+    authority_weight?: number,         // that type's weight at the time
+    contributor_id?: string            // registered contributor who brought the source in (0.7.60.0+)
   }>,
   extraction_method: string,           // e.g. "gpt-4o-mini chunk extraction v2"
   curated_by?: string,                 // Human Curator who promoted/approved
@@ -231,25 +252,23 @@ combined_score = (similarity × 0.7) + (pot_score × 0.3)
 
 Tunable: pin a single strategy, change the ranking weights, raise the score floor.
 
-## Temporal decay (optional, off by default)
+### What each result carries
 
-Some facts are inherently time-sensitive. SciPot supports exponential decay per fact:
+Since API `0.7.71.0` a result is a receipt on its own: no `GET /pots/{pot_id}/facts/{fact_id}` per result to name the source or quote the passage.
 
-```
-score_actual(t) = score_base × e^(-λ × t)
-```
+| Field | On | What it is |
+|---|---|---|
+| `provenance` | `/query`, `/search` | The same model `/synthesize` returns: `type`, `sources`, `profile_id`, `profile_version`. |
+| `location` | `/query`, `/search` | The passage the fact was extracted from: `section_path`, `source_text`, `page_number`, and for spreadsheets `sheet_name`, `row_number`, `cell_ref`. |
+| `document_id` | `/query`, `/search` | The document the fact came from. |
+| `gap_evidence` | `/query` | Whether the gap signal counts this fact when it decides the question is covered. `false` for a fact not in force and for a high-certainty fact that is off topic. |
+| `currency`, `valid_from`, `valid_until` | `/query`, `/search`, `GET` fact | Whether the fact is in force on `as_of`. See [Validity over time](/trust-mechanics/validity). |
 
-Decay presets:
+`/search` also drops results below a similarity floor (`min_similarity`, default 0.20; `0` turns it off) and returns `coverage`: `weak` when nothing passed or the best match is below 0.35, else `ok`.
 
-| λ | Profile | Use case | Score after 12 months |
-|---|---|---|---|
-| 0.00 | None (default) | Physical laws, axioms, definitions | 100% |
-| 0.02 | Slow | Industry standards | ~79% |
-| 0.05 | Medium | Market data, statistics | ~55% |
-| 0.10 | Fast | Pricing, executive appointments | ~30% |
-| 0.20 | Very fast | News, events, forecasts | ~9% |
+## Time does not lower a score
 
-**Constitution facts never decay** (λ is forced to 0.00). Human Curator validation resets the clock. Below 0.30 a fact is flagged `requires_revalidation`; below 0.10 it's marked `expired` and excluded from default retrieval.
+Earlier versions documented an optional exponential decay per fact. Nothing ever applied it, and API `0.7.56.0` removed it (`decay_rate` is gone from facts). Time does not change certainty: a replaced rule is not less true, it is no longer in force. That is a separate field, `currency`, computed for the day you ask about. See [Validity over time](/trust-mechanics/validity).
 
 ## What you get in production
 

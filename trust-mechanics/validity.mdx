@@ -1,0 +1,165 @@
+---
+title: "Validity over time"
+sidebarTitle: "Validity over time"
+description: "When a fact starts holding, what replaces it, and how to ask what was in force on a given day. Time never lowers a POT Score: a replaced rule is not less true, it is no longer in force."
+---
+
+import { Gap } from '/snippets/fact.jsx';
+
+A POT Score answers *how sure are we that this is true*. Validity answers a different question: *is it the rule in force on this day*. SciPot keeps the two apart. A 2022 policy that a 2025 policy replaced is still a faithful record of the 2022 policy, so its score does not move. What changes is its **currency** on the day you ask about.
+
+Since API `0.7.58.0` every fact returned by `/search`, `/query` and `GET /pots/{pot_id}/facts/{fact_id}` says whether it is in force, from when, until when, and why.
+
+## See it in one curl
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/$POT_ID/query" \
+  -H "X-API-Key: $SCIPOT_KEY" \
+  -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How many days of remote work per week?", "as_of": "2026-03-01"}'
+```
+
+```json
+{
+  "fact_id": "0199...a41",
+  "content": "Employees may work remotely up to 2 days per week.",
+  "pot_score": 0.72,
+  "currency": "not_current",
+  "valid_from": "2022-01-10",
+  "valid_until": "2025-09-01",
+  "superseded_at": "2025-09-03T08:12:44Z",
+  "currency_reason": { "edge_id": "0199...e07", "kind": "partial", "basis": "passage" }
+}
+```
+
+The 2022 rule is still in the answer, with its POT Score of 0.72, ranked after the facts in force. Nothing is hidden: your agent sees both and the reason one replaced the other.
+
+## When a fact starts holding: `valid_from`
+
+Every fact carries `valid_from` (a date, or `null` when nobody knows) and `valid_from_source`, which says where the date came from:
+
+| `valid_from_source` | Set by |
+|---|---|
+| `document_effective` | The document's `effective_from`: the day its effects start, when that differs from its date. |
+| `document_date` | The document's own date (`original_date` on upload, `source.created_at` on `/ingest`). |
+| `contributor` | `valid_from` on `POST /pots/{pot_id}/facts/contribute`. |
+| `imported` | `valid_from` on an item of `POST /pots/{pot_id}/facts/import`. |
+| `curator` | `PATCH /pots/{pot_id}/facts/{fact_id}/validity`. |
+
+`valid_from` is never the day SciPot stored the fact. Ingestion time says nothing about the world.
+
+Set a document's dates when you upload it (`effective_from` as a query parameter of `POST /documents/upload`) or later with `PATCH /documents/{document_id}`. Changing `original_date` or `effective_from` recomputes the facts extracted from it (`facts_revalidated` in the response). A date a person gave is never overwritten by a document's date.
+
+A curator can state the day directly:
+
+```bash
+curl -X PATCH "https://api.scipot.ai/pots/$POT_ID/facts/$FACT_ID/validity" \
+  -H "X-API-Key: $SCIPOT_KEY" -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"valid_from": "2025-09-01"}'
+```
+
+`null` clears it. Axioms have no validity window: the call answers `422 FACT_IS_AXIOM`.
+
+## Currency on a day: `as_of`
+
+`as_of` (an ISO date) is accepted by `POST /pots/{pot_id}/search`, `POST /pots/{pot_id}/query`, `GET /pots/{pot_id}/facts/{fact_id}` and `.../with-edges`. Omitted, it is today in UTC; `metadata.as_of` says which day was used.
+
+| `currency` | Meaning |
+|---|---|
+| `current` | In force on `as_of`. |
+| `pending` | In force, with a warning: a repeal of it waits for a curator or is blocked, or a conflict with another value cannot be ordered by date. |
+| `future` | Starts holding after `as_of`. |
+| `not_current` | A repeal in effect on `as_of` replaces it. Its POT Score is unchanged. |
+
+Results are ordered by currency first (current and pending, then future, then not current) and by relevance within each group. Only facts in force count as covering the question: `/search`'s `coverage` and the gap signal of `/query` and `/synthesize` ignore the rest.
+
+`superseded` and `superseded_by` are still returned and mean `currency == "not_current"`.
+
+## What replaces a fact: `supersedes`
+
+A repeal is an edge: `supersedes`, from the fact that replaces to the fact replaced. It says how it came about and since when it applies:
+
+| Field | Values |
+|---|---|
+| `kind` | `express` (the text says it replaces), `partial` (one section of a document), `tacit` (an incompatible later rule of the same kind), `hierarchy` (a precedence rule decided it), `manual` (a curator decided it), `suspension` (stops applying on `resume_at`), `extension` (extends, never retires) |
+| `basis` | `passage` (the text that states it), `curator`, or `rule:<id>` |
+| `effective_at` | The day it takes effect, when a person states it. Otherwise the replacing fact's `valid_from`, else the day the edge was stored. |
+| `applied_at` | When it started retiring its target in SciPot. Written once. |
+
+A repeal whose day is after `as_of` does not retire anything yet: the older fact stays `current` with `valid_until` set to that day.
+
+Three guards keep a repeal from retiring the wrong fact:
+
+- **Axioms are never retired by a repeal.** An axiom is retired by deactivating it.
+- **A weaker fact does not retire a stronger one on its own.** A fact below Supported (0.60) retires one at Supported or above only when a curator validated the edge. Such a repeal is listed as `blocked_supersedes` instead.
+- **A repeal that cites a section retires only that section.** When the cited section cannot be found in the stored passages, the repeal is saved `pending` and a curator decides.
+
+### Repeals the system detects
+
+Edge detection proposes a `supersedes` when one fact explicitly derogates or replaces another ("replaces section 3 of the 2022 policy"). Each proposal is confirmed by a second pass before it applies; one the second pass rejects or does not answer is saved `pending`, retires nothing, and waits in the curation queue. Pending repeals are listed in `edges_context.pending_supersedes` on `/query` when edges are included.
+
+### Tacit repeal
+
+Two facts from different documents, joined by a strong `contradicts` edge (weight 0.8 or more), whose sources are of the same kind: the one whose `valid_from` is later replaces the other, read at query time. Nothing is written, so correcting a date reorders the pair at once. Undated, same-day or untyped pairs are both `pending`; pairs of different kinds are left to precedence rules.
+
+### A curator decides
+
+```bash
+# "It is not a mistake, it changed": turn a contradiction into a repeal
+curl -X POST "https://api.scipot.ai/pots/$POT_ID/edges/$CONTRADICTS_EDGE_ID/supersede" \
+  -H "X-API-Key: $SCIPOT_KEY" -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -H "X-Contributor-ID: $CURATOR_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"replacing_fact_id": "'$NEWER_FACT_ID'"}'
+```
+
+It stores a `validated` repeal (`kind: manual`, `basis: curator`) from that fact to the other one, and rejects a repeal in the opposite direction. The contradiction edge stays and no POT Score moves. To decide a repeal the detector proposed, `PATCH /pots/{pot_id}/edges/{edge_id}` with `validated` or `rejected`. Both record who decided (`X-Contributor-ID` of an active contributor, else the integrator key) and when.
+
+## Which kind of source prevails: precedence rules
+
+Some precedence is a matter of policy, not dates: a signed agreement over an internal memo, a regulation over guidance. Declare it in the constitution:
+
+```bash
+curl -X POST "https://api.scipot.ai/pots/$POT_ID/constitution/precedence-rules" \
+  -H "X-API-Key: $SCIPOT_KEY" -H "X-Workspace-ID: $WORKSPACE_ID" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "over":  {"source_types": ["regulation"], "tags_all": ["signed"]},
+    "under": {"source_types": ["official_guidance"]},
+    "later_only": true,
+    "tie": "later_valid_from",
+    "effect": "supersede",
+    "priority": 100
+  }'
+```
+
+| Field | Meaning |
+|---|---|
+| `over` / `under` | The facts that prevail and give way: source type keys of the POT, and optionally tags every fact must carry. |
+| `later_only` | `true` (default): prevail only when the `over` fact starts holding after the `under` one. `false`: whatever the dates. |
+| `tie` | When a pair matches the rule both ways: the later `valid_from` prevails, or `none` (the pair is `pending`). |
+| `effect` | `supersede` retires the other fact; `flag_only` leaves it and names the preferred one in `currency_reason.precedence_hint`. |
+| `priority` | Lower runs first. The first active rule that covers a pair decides it. |
+
+Rules are read at query time over pairs a `contradicts` edge joins, before the tacit rule. Nothing is written, so a rule declared today reaches every fact already stored, and switching it off (`PATCH` with `"active": false`) restores them. At most 50 rules per POT, 10 active. A set of active rules that prevails in a circle is refused with `409 PRECEDENCE_RULE_CYCLE`.
+
+Source type keys come from the POT's own [source types](/trust-mechanics/constitution#source-types).
+
+## What this does not do yet
+
+<Gap title="When does a fact stop holding when nothing replaces it?">
+  A fact ends only when a repeal replaces it. There is no hand-typed expiry date: `valid_until` is always derived from a `supersedes` edge. Facts that expire on their own (a price valid for a quarter) need a replacing fact or a curator today.
+</Gap>
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Contradiction Detection" icon="triangle-exclamation" href="/trust-mechanics/contradiction-detection">
+    How `contradicts` edges are found, and why they are never resolved automatically.
+  </Card>
+  <Card title="POT Score & Provenance" icon="scale-balanced" href="/trust-mechanics/pot-score-and-provenance">
+    How sure we are a fact is true, and where it came from.
+  </Card>
+</CardGroup>

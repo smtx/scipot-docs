@@ -128,7 +128,9 @@ When v2 ships, both versions will be available simultaneously for a deprecation 
 
 - `Deprecation` response header with the deprecation date.
 - `Sunset` response header with the planned removal date.
-- A `X-API-Version` response header echoing which version handled the request.
+- `Link` response header pointing to the policy and the replacement.
+
+`GET /health` reports the version that handled the request.
 
 See [Versioning](/api-reference/versioning) for the full deprecation policy.
 

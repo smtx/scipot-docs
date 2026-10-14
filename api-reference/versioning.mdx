@@ -6,23 +6,22 @@ description: "SciPot's current version, the SemVer policy we follow under 0.x, d
 
 ## Current version
 
-**`0.2.0`** — first deliberately-tracked release. See the [Changelog](/changelog) for the full history.
-
-You can read the active version programmatically:
+Versions have four numbers, `0.MINOR.PATCH.MICRO` (for example `0.7.73.0`). Read the one that is serving you:
 
 ```bash
+curl -s https://api.scipot.ai/health | jq -r .version
+# or
 curl -s https://api.scipot.ai/openapi.json | jq -r .info.version
-# → "0.2.0"
 ```
 
-Every authenticated response also carries an `X-API-Version` header echoing the version that handled the request.
+Both answer with the version of the process that handled the request. See the [Changelog](/changelog) for the full history.
 
 ## The promise (and the caveat)
 
 While the API is below `1.0.0`, **minor bumps (`0.x.0`) MAY include breaking changes.** This is the standard SemVer pre-release convention — we use it deliberately because some surfaces are still settling. Every breaking change is:
 
 - Documented in the [Changelog](/changelog) under the version that introduces it.
-- Announced ≥30 days before removal in the body of `Deprecation` / `Sunset` response headers when applicable.
+- Announced ≥30 days before removal with `Deprecation` / `Sunset` response headers on every response of the deprecated route.
 - Mentioned in our release notes / Twitter / newsletter at the time of the bump.
 
 **Consumers should pin to a known-good minor version** during the 0.x phase. Once the API stabilises we'll cut `1.0.0` and adopt strict SemVer (breaking changes only in major bumps).
@@ -46,35 +45,35 @@ After we cut `1.0.0`, "Yes" moves to `2.0.0` and strict SemVer applies.
 
 ## Headers you'll see
 
-### `X-API-Version`
-
-Echoes the version that handled the request:
-
-```http
-X-API-Version: 0.2.0
-```
-
-Always present. Log it in your client so you can correlate behaviour changes with releases.
+Since API `0.7.70.0`, every response of a deprecated route carries three headers. Every response means every one: success, a body that could not be parsed, a `401` or `429`, a `500`. The operation is also marked `deprecated: true` in `/openapi.json`.
 
 ### `Deprecation`
 
-Present when the endpoint or a field you used is deprecated. Value is an RFC 3339 date for when deprecation started:
+RFC 3339 date the deprecation started:
 
 ```http
-Deprecation: 2026-05-11T00:00:00Z
+Deprecation: 2026-10-14T00:00:00Z
 ```
 
 If you see this header, plan migration before the `Sunset` date.
 
 ### `Sunset`
 
-Present alongside `Deprecation`. Date when the endpoint/field will be removed:
+Date the route is removed:
 
 ```http
-Sunset: 2026-08-11T00:00:00Z
+Sunset: 2026-11-23T00:00:00Z
 ```
 
 Standard window: **30 days minimum**, typically 60–90 days for endpoints we believe are in active use.
+
+### `Link`
+
+Where the policy and the replacement are documented:
+
+```http
+Link: <https://docs.scipot.ai/api-reference/versioning>; rel="deprecation"
+```
 
 Surface these in your logs:
 
@@ -92,7 +91,23 @@ if (deprecation) {
 1. **Day 0** — replacement ships. Old version continues working unchanged.
 2. **Day 0** — `Deprecation` + `Sunset` headers added to responses involving the old version. Entry added to the CHANGELOG under `### Deprecated`.
 3. **Day 0 → Sunset** — both old and new work. Migrate at your pace.
-4. **Sunset day** — old version removed. Calls return `410 Gone` with `error.code: "VERSION_SUNSET"`.
+4. **After the sunset** — the route's code is removed in the next minor. Calls return `410 Gone` with `error.code: "VERSION_SUNSET"`, the replacement in `error.fix`, and the `Sunset` and `Link` headers, behind the same authentication as the route it replaces.
+
+## Deprecated today
+
+Deprecated on 2026-10-14 (API `0.7.70.0`). They answer as before until the sunset, **2026-11-23**, and are removed in `0.8.0.0`.
+
+| Route | Use instead |
+|---|---|
+| `POST /pots/{pot_id}/cag/search` | `POST /pots/{pot_id}/query` or `POST /pots/{pot_id}/search` |
+| `POST /pots/{pot_id}/cag/warm` | Nothing to warm: `/query` and `/search` need no cache. |
+| `GET /pots/{pot_id}/cag/stats` | Nothing: there is no cache to inspect. |
+| `GET /integrator/dashboard` | `/integrator/usage/summary`, `/integrator/usage/workspaces`, `/integrator/usage/workspace/{workspace_id}`, `/integrator/usage/token-quota` |
+| `POST /pots/{pot_id}/facts/{fact_id}/scope` | No replacement: a fact's scope becomes read-only. `scope_inferred`, `scope_confidence` and `scope_reason` stay readable on the fact. |
+
+`POST /pots/{pot_id}/synthesize` is not deprecated.
+
+Deprecated response fields that stay in the response, always `null`: `capsule_id`, `resolved_cluster_id` and `timeout_at` on knowledge gaps.
 
 ## What's stable across 0.x — load-bearing surfaces
 
@@ -114,7 +129,7 @@ Not every endpoint is at the same maturity level. Per-endpoint pages may carry a
 - **`beta`** — functionally complete but may evolve in minor breaking ways with explicit per-endpoint notice. Use in production at your own pace.
 - **`experimental`** — we're trying out the shape. May change or be removed at any time. We'll try to warn but can't promise the deprecation window.
 
-Today, most endpoints are `stable`. The contradiction-resolution surface (`/edges/{edge_id}/stances`, `/edges/{edge_id}/resolve`) and the lab endpoints are `experimental`.
+Today, most endpoints are `stable`. The contradiction-resolution surface (`/edges/{edge_id}/stances`, `/edges/{edge_id}/resolve`) is `experimental`.
 
 ## Why we're on 0.x
 

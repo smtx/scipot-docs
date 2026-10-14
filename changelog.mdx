@@ -4,7 +4,7 @@ sidebarTitle: "Changelog"
 description: "Every user-visible change to the SciPot API, in reverse chronological order. Format follows Keep a Changelog; the project follows Semantic Versioning."
 ---
 
-This page is the public record of the API's releases and is updated on every release. The current API version is reported in the `X-API-Version` response header on every authenticated request.
+This page is the public record of the API's releases and is updated on every release. `GET /health` and `/openapi.json` report the version that is serving you.
 
 <Note>
 **Pre-1.0 versioning.** While the API is below `1.0.0`, minor version bumps (`0.x.0`) MAY include breaking changes. We always document them here, but consumers should pin to a known-good minor version. Once the API stabilises, we'll cut `1.0.0` and adopt strict SemVer (breaking changes only in major bumps). See [Versioning](/api-reference/versioning) for the full policy.
@@ -15,6 +15,284 @@ This page is the public record of the API's releases and is updated on every rel
 ## Unreleased
 
 _Changes in flight on `main` but not yet tagged._
+
+---
+
+## 0.7.73.0 — 2026-10-14
+
+_Room limits per workspace._
+
+### Added
+
+- **`PATCH /integrator/workspaces/{workspace_id}/quotas` also sets room limits:** `max_pots`, `max_documents_per_pot` and `max_storage_bytes`. Every field is optional and one left out is unchanged; the old `{"max_monthly_tokens": …}` body works as before. A raise is capped by your plan's ceilings, a lowering is always accepted, and a request with one refused field writes nothing. `409` when a value changed between the check and the write: read it again and retry.
+
+---
+
+## 0.7.72.0 — 2026-10-14
+
+_The knowledge-gap object is frozen._
+
+### Changed
+
+- **The knowledge-gap object, its states and its transitions are fixed.** A gap is the event: a question the POT does not cover, idempotent on `idempotency_key`, with the flow around it stored as it is. New states, fields or automations belong in your application, built on the gap and its transitions.
+
+### Deprecated
+
+- `capsule_id`, `resolved_cluster_id` and `timeout_at` on knowledge gaps. They are always `null` and stay in the response.
+
+---
+
+## 0.7.71.0 — 2026-10-14
+
+_Every result is a receipt._
+
+### Added
+
+- **`POST /pots/{pot_id}/query`**: each result carries `provenance` (the same model `/synthesize` returns), `location` (the passage: section, text, page, spreadsheet cell), `document_id` and `gap_evidence` (whether the gap signal counts this fact when it decides the question is covered).
+- **`POST /pots/{pot_id}/search`**: each result carries `document_id`, `provenance` and `location`.
+
+No more `GET /pots/{pot_id}/facts/{fact_id}` per result to name a source or quote the passage. See [What each result carries](/trust-mechanics/pot-score-and-provenance#what-each-result-carries).
+
+---
+
+## 0.7.70.0 — 2026-10-14
+
+_Deprecation headers, and the first five deprecated routes._
+
+### Added
+
+- **Deprecation headers.** Every response of a deprecated route carries `Deprecation`, `Sunset` and `Link: <https://docs.scipot.ai/api-reference/versioning>; rel="deprecation"`, error responses included, and the operation is `deprecated: true` in `/openapi.json`. After the sunset a removed route answers `410 VERSION_SUNSET` with the replacement in `error.fix`. See [Versioning](/api-reference/versioning#deprecated-today).
+
+### Deprecated
+
+Sunset **2026-11-23**; removed in `0.8.0.0`.
+
+- `POST /pots/{pot_id}/cag/search`, `POST /pots/{pot_id}/cag/warm`, `GET /pots/{pot_id}/cag/stats`. Use `POST /pots/{pot_id}/query` or `/search`.
+- `GET /integrator/dashboard`. Use the `/integrator/usage/*` routes.
+- `POST /pots/{pot_id}/facts/{fact_id}/scope`. No replacement: a fact's scope becomes read-only.
+
+`POST /pots/{pot_id}/synthesize` is not deprecated.
+
+---
+
+## 0.7.69.1 — 2026-10-14
+
+### Fixed
+
+- A repeal that cites a numbered section of a document whose headings carry the full document title now resolves that section, instead of waiting `pending` for a curator.
+
+`0.7.67.0` to `0.7.69.0` are internal changes: nothing changes in the public API.
+
+---
+
+## 0.7.66.0 — 2026-10-14
+
+_Episodes, behind a switch._
+
+### Added
+
+- **Episodes** (`0.7.61.0`–`0.7.66.0`): a record of one working session on a POT, with a short digest that cites the facts it created, who took part (by role) and why it ended. Writes sent with `X-Episode-ID` are stamped with the episode, so it finds its facts and edges without listing them. Routes: `POST`, `GET` and `DELETE /pots/{pot_id}/episodes[/{episode_id}]` and `GET /pots/{pot_id}/facts/{fact_id}/episodes`. Deleting an episode leaves a tombstone without the digest or the people.
+
+<Note>
+Episodes are **off on SciPot Cloud** today: the routes answer `404` and `X-Episode-ID` is ignored. They do not change any POT Score.
+</Note>
+
+---
+
+## 0.7.60.1 — 2026-10-13
+
+### Changed
+
+- **Detected contradictions are confirmed by a second pass again** before they are saved, on SciPot Cloud.
+- **Detected repeals (`supersedes`) are confirmed too.** A repeal the second pass rejects, or does not answer, is saved `pending`: it retires nothing until a curator validates it. Expect some repeals that used to apply on their own to wait in the curation queue.
+
+---
+
+## 0.7.60.0 — 2026-10-13
+
+### Added
+
+- **`provenance.sources[0].contributor_id`**: the registered contributor who brought the source in. A contribution records its contributor; an extracted fact records the document's uploader, or the contributor the request was attributed to with `X-Contributor-ID`. Set by the server only.
+
+---
+
+## 0.7.59.0 — 2026-10-13
+
+_Which kind of source prevails._
+
+### Added
+
+- **Precedence rules in the constitution**: `GET`, `POST` and `PATCH /pots/{pot_id}/constitution/precedence-rules`. Declare which source types prevail over which (`over`, `under`, optional `tags_all`), only when later or always (`later_only`), how ties break (`tie`), and whether the other fact is retired or only flagged (`effect: supersede | flag_only`). Read at query time over pairs a `contradicts` edge joins: nothing is written, so a rule reaches every fact already stored and switching it off restores them. See [Validity over time](/trust-mechanics/validity#which-kind-of-source-prevails-precedence-rules).
+
+---
+
+## 0.7.58.0 — 2026-10-13
+
+_What was in force on a given day._
+
+### Added
+
+- **`as_of`** on `POST /pots/{pot_id}/search`, `POST /pots/{pot_id}/query`, `GET /pots/{pot_id}/facts/{fact_id}` and `.../with-edges` (ISO date, default today in UTC). Every result carries `currency` (`current`, `pending`, `future`, `not_current`), `valid_from`, `valid_until`, `superseded_at` and `currency_reason`. Nothing is excluded: facts not in force on that day come after the ones that are, and only facts in force count as covering the question.
+- **Tacit repeal.** A strong contradiction between facts of two documents whose sources are of the same kind is read as a repeal from the one that starts later. Nothing is written; correcting a date reorders the pair at once.
+
+### Changed
+
+- **A repeal applies from its effective day**, not from when SciPot detected it. A repeal dated after `as_of` leaves the older fact `current`, with `valid_until` set.
+
+---
+
+## 0.7.57.0 — 2026-10-13
+
+### Added
+
+- **A `supersedes` edge says how and since when**: `kind` (`express`, `partial`, `tacit`, `hierarchy`, `manual`, `suspension`, `extension`), `basis` (`passage`, `curator`, `rule:<id>`), `scope_section`, `effective_at`, `resume_at`, `applied_at`. Edges stored before read `express`/`passage` (detected) or `manual`/`curator` (created by a person).
+- **`POST /pots/{pot_id}/edges/{edge_id}/supersede`**: a curator turns a contradiction into a repeal ("it is not a mistake, it changed"). The contradiction edge stays and no POT Score moves.
+
+---
+
+## 0.7.56.0 — 2026-10-13
+
+_Facts say from what day they hold._
+
+### Added
+
+- **`valid_from` and `valid_from_source` on every fact.** Extracted facts take the document's `effective_from` or, without one, its date; never the day SciPot stored them.
+- **`effective_from` on documents**: a query parameter of `POST /documents/upload`, a field of `PATCH /documents/{document_id}` and of `source` on `/ingest`. Changing a document's dates recomputes its facts (`facts_revalidated`); a date a person gave is never overwritten.
+- **`PATCH /pots/{pot_id}/facts/{fact_id}/validity`** (`{"valid_from": "YYYY-MM-DD" | null}`), and `valid_from` on contributions and on each item of `/facts/import`.
+
+### Removed
+
+- **`decay_rate` on facts, and `valid_until` as a stored field.** Nothing ever applied the decay, and time does not lower certainty. `valid_until` is now derived from repeals. Stored items that carry either are read as before and the attribute is ignored.
+
+---
+
+## 0.7.55.0 — 2026-10-13
+
+### Added
+
+- **Fact `warnings`.** A fact that states a repeal ("replaces section 3 of …") carries a `repeal` warning, returned by the facts API.
+
+### Fixed
+
+- **A repeal that cites one section retires only that section**, not every fact of the document. When the cited section cannot be found in the stored passages, the repeal is saved `pending` for a curator.
+- **A fact's `location.section_path` is its passage's section**, not the section where its chunk started.
+
+---
+
+## 0.7.54.1 — 2026-10-13
+
+### Fixed
+
+- **Edge validation status was not stored.** Every edge read back `auto-approved`, so a `pending` repeal retired its fact, and `PATCH /pots/{pot_id}/edges/{edge_id}` answered `404`. Both fixed; edges stored before read as they did.
+- **A fact's validation status, flags and creation time were not stored.** Curation and endorsement statuses read back `pending` on the next request, and `sort_by=created_at` sorted by read time. Both fixed.
+
+---
+
+## 0.7.53.0 — 2026-10-13
+
+### Added
+
+- **Axiom classes: `fact`, `rule`, `scope`.** A `scope` axiom describes the POT itself ("This POT only covers X") and never gets edges, so no fact can contradict it and it moves no score. Set with `kind` on `POST /pots`, `POST .../constitution/facts` and `PATCH .../constitution/facts/{axiom_id}`. `POST .../edges/detect` refuses a scope axiom with `422 EDGE_DETECT_SCOPE_AXIOM`. See [Axiom classes](/trust-mechanics/constitution#axiom-classes-fact-rule-scope).
+
+---
+
+## 0.7.51.0 — 2026-10-13
+
+### Changed
+
+- **A paid top-up lifts the monthly total only in the month it was bought.** Balances bought before this release count through October 2026.
+- **A workspace with no limit of its own reports the integrator's total** in its token quota (`is_limited: true`, with `tokens_limit` and `tokens_remaining` from the total).
+
+---
+
+## 0.7.50.0 — 2026-10-13
+
+### Changed
+
+- **You set your workspaces' token quotas; your monthly total is the only stop.** Your key may give any workspace any `max_monthly_tokens`, `null` included. The integrator's total is checked before every token-spending call, summed over all workspaces, so one workspace can spend all of it.
+
+---
+
+## 0.7.49.0 — 2026-10-12
+
+### Changed
+
+- **Breaking for `PATCH /pots/{pot_id}/constitution/source-types/{key}` with a new `weight`:** the recompute runs as a job. The response carries `job_id`; `facts_recomputed`, `facts_saved`, `skipped_curated` and `skipped_endorsed` move to the job's `result` (`GET /jobs/{job_id}`). An axiom change answers `repropagation_job_id` the same way. A recompute that failed (`POT_BUSY`) is recovered by sending the same `PATCH` again.
+
+---
+
+## 0.7.48.0 — 2026-10-12
+
+### Fixed
+
+- A fact's passage is the sentence that states it, not a heading that names its source. Passages never join text across a heading.
+- Explicit repeal wording ("replaces", "repeals", "no longer applies") looks up the cited document directly, so the repeal is proposed even when the sentences are not similar (`0.7.47.0`).
+
+---
+
+## 0.7.46.0 — 2026-10-11
+
+_A newer norm can repeal an older one._
+
+### Added
+
+- **`supersedes` edges.** Detection proposes one when a fact explicitly replaces another. The older fact keeps its POT Score; search, query and synthesis mark it `superseded`, rank it after every current fact and leave it out of the gap signal. A repeal never retires an axiom, and a fact below SUPPORTED retires one at SUPPORTED or above only when a curator validated the edge (`PATCH /pots/{pot_id}/edges/{edge_id}` with `validated` or `rejected`). `GET /pots/{pot_id}/facts/{fact_id}` returns `superseded` and `superseded_by`; `/query` lists `pending_supersedes` and `blocked_supersedes` in `edges_context`.
+
+---
+
+## 0.7.45.0 — 2026-10-11
+
+### Changed
+
+- **A contribution is safe to retry.** `POST /pots/{pot_id}/facts/contribute` takes `idempotency_key` (or `Idempotency-Key`): the same contribution answers `201` again with `replayed: true` and the same facts, without calling the model again. The response adds `facts[]`, `replayed` and `post_ingestion`; edge detection runs as a job after the answer.
+- **Breaking: `DELETE /pots/{pot_id}/facts/{fact_id}` answers `200`** with `{fact_id, pot_id, deleted: true, replayed}` instead of `204`. A repeat within 24 hours answers `replayed: true`; a deletion in progress is `409 FACT_DELETE_IN_FLIGHT`.
+
+---
+
+## 0.7.44.0 — 2026-10-10
+
+### Added
+
+- **Changing a source type's weight moves the facts that started with it**, except curated and endorsed facts.
+
+### Fixed
+
+- **Switching an axiom off releases the facts it lifted or lowered** (`0.7.44.0`).
+- **Propagation, the knowledge graph and a contributor's curations read every fact**, not the first 100 (`0.7.44.1`, `0.7.44.2`). `POST /pots/{pot_id}/propagate` includes axioms again (`0.7.44.3`).
+- **A storage read that fails answers `503` with `Retry-After`** on the paths that used to treat it as empty and could wipe scores (`0.7.44.3`).
+
+---
+
+## 0.7.43.0 — 2026-10-10
+
+### Changed
+
+- **Ingestion reads the POT's own source types.** `source_authority` takes any key of the POT's source types; an unknown key is `422 SOURCE_TYPE_UNKNOWN`, a switched-off one `422 SOURCE_TYPE_INACTIVE`. Every fact records `provenance.sources[0].authority` and `.authority_weight`.
+
+---
+
+## 0.7.42.0 — 2026-10-10
+
+### Added
+
+- **A POT's own source types**: `GET`/`POST /pots/{pot_id}/constitution/source-types` and `PATCH …/{key}`. Each has a `key`, `label`, `weight` (0.20–0.79: no type reaches VERIFIED alone) and `description`. A POT that never edited them reads a template of seven. See [Source types](/trust-mechanics/constitution#source-types).
+
+---
+
+## 0.7.41.0 — 2026-10-10
+
+### Added
+
+- **Source authority.** The kind of source of a document sets the starting POT Score of every fact extracted from it. Omitted, it stays 0.50.
+- **A relevance floor on `/search`.** Results below `min_similarity` (default 0.20) are dropped before the trim to `top_k`, so a very certain but unrelated fact never takes the place of a related one. `data.coverage` is `weak` when nothing passed or the best match is weak. `min_similarity: 0` restores the old behaviour.
+
+---
+
+## 0.7.40.0 — 2026-10-09
+
+### Changed
+
+- **Backups keep 30 days instead of 35.** Deleted data survives in backups for that window only, so the erasure window is 30 days, as published.
 
 ---
 
@@ -413,5 +691,5 @@ Going forward, every user-visible change to the API gets an entry in this file b
 ---
 
 <Note>
-**How this changelog stays in sync.** The canonical CHANGELOG lives in the API repo. Every release updates this Mintlify page in lockstep. If you see a version in `X-API-Version` that isn't reflected here, that's our bug — let us know at [hello@scipot.ai](mailto:hello@scipot.ai).
+**How this changelog stays in sync.** The canonical CHANGELOG lives in the API repo. Every release updates this Mintlify page in lockstep. If `GET /health` reports a version that isn't reflected here, that's our bug — let us know at [hello@scipot.ai](mailto:hello@scipot.ai).
 </Note>

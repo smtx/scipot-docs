@@ -53,6 +53,7 @@
               "trust-mechanics/constitution",
               "trust-mechanics/curators",
               "trust-mechanics/contradiction-detection",
+              "trust-mechanics/validity",
               "trust-mechanics/context-attachments"
             ]
           },

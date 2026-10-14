@@ -243,9 +243,51 @@ Codes introduced with the [fact-level PII layer](/guides/pii) (`0.5.4.0`).
 
 | Code | HTTP | Cause | Fix | Retryable |
 |---|---|---|---|---|
-| `STRATEGY_NOT_AVAILABLE` | 501 | `strategy` on `POST /pots/{pot_id}/query` names a strategy that endpoint does not run: `cag` since `0.6.0.0`, or `graph_rag` on a deployment without GraphRAG. Body: `{"detail": {"code", "message"}}`. | Send `strategy: "auto"` or `"rag"`. For a cached keyword/entity lookup, call `POST /pots/{pot_id}/cag/search`. | No |
+| `STRATEGY_NOT_AVAILABLE` | 501 | `strategy` on `POST /pots/{pot_id}/query` names a strategy that endpoint does not run: `cag` since `0.6.0.0`, or `graph_rag` on a deployment without GraphRAG. Body: `{"detail": {"code", "message"}}`. | Send `strategy: "auto"` or `"rag"`. | No |
 
-`POST /pots/{pot_id}/cag/search` and `/cag/warm` answer a `500` with a plain-string `detail` (`"CAG search failed"`, `"CAG cache initialization failed"`) when the cache cannot load, and a `503` with `Retry-After` when the storage backend reports itself unavailable.
+`POST /pots/{pot_id}/cag/search` and `/cag/warm` (deprecated, sunset 2026-11-23) answer a `500` with a plain-string `detail` (`"CAG search failed"`, `"CAG cache initialization failed"`) when the cache cannot load, and a `503` with `Retry-After` when the storage backend reports itself unavailable.
+
+### Versioning
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `VERSION_SUNSET` | 410 | The route was deprecated and its sunset date has passed; its code is gone. The response carries the `Sunset` and `Link` headers. | `error.fix` names the replacement. See [Deprecated today](/api-reference/versioning#deprecated-today). | No |
+
+### Validity, repeals and precedence
+
+Codes of [Validity over time](/trust-mechanics/validity) (`0.7.56.0`–`0.7.59.0`).
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `FACT_IS_AXIOM` | 422 | `PATCH .../facts/{fact_id}/validity` on an axiom. Axioms have no validity window. | Deactivate the axiom instead. | No |
+| `EDGE_NOT_A_CONFLICT` | 422 | `POST .../edges/{edge_id}/supersede` on an edge that is not `contradicts` or `resolved_contradiction`. | Call it on the contradiction between the two facts. | No |
+| `EDGE_SUPERSEDE_NOT_AN_ENDPOINT` | 422 | `replacing_fact_id` is not one of the edge's two facts. | Send the edge's `from_id` or `to_id`. | No |
+| `EDGE_SUPERSEDE_AXIOM` | 422 | The repeal would retire an axiom. | Deactivate the axiom with `PATCH .../constitution/facts/{axiom_id}`. | No |
+| `PRECEDENCE_RULE_SOURCE_TYPE` | 422 | The rule names a key that is not an active source type of the POT. | Use a key from `GET .../constitution/source-types`. | No |
+| `PRECEDENCE_RULE_OVERLAP` | 422 | Both sides cover the same facts and `tie` is `none`: the rule could never decide a pair. | Narrow one side (another type, or `tags_all`), or set `tie: "later_valid_from"`. | No |
+| `PRECEDENCE_RULE_LIMIT` | 422 | 50 rules stored or 10 active already. | Switch a rule off (`"active": false`). | No |
+| `PRECEDENCE_RULE_INVALID` | 422 | The rule is malformed. | Read `error.message`. | No |
+| `PRECEDENCE_RULE_CYCLE` | 409 | The active rules would prevail in a circle of source types. | Switch off or reorder (`priority`) one of the rules in the circle. | No |
+| `PRECEDENCE_RULES_BUSY` | 409 | Another change to the POT's rules landed while this one was saved. | Retry. | Yes |
+
+### Constitution and source types
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `SOURCE_TYPE_UNKNOWN` | 422 | `source_authority` on ingestion names a key the POT does not have. The message lists the valid keys. | Use one of them, or add the type. | No |
+| `SOURCE_TYPE_INACTIVE` | 422 | `source_authority` names a type that was switched off. | Switch it on again, or use another. | No |
+| `source_types_busy` | 409 | Concurrent edits to the POT's source types kept colliding (3 attempts). | Retry. | Yes |
+| `EDGE_DETECT_SCOPE_AXIOM` | 422 | `POST .../edges/detect` named a `scope` axiom in `fact_ids`. Scope axioms never get edges. | Leave it out. | No |
+
+### Contributions and deletes
+
+`POST /pots/{pot_id}/facts/contribute` takes an `idempotency_key` (`0.7.45.0`), and `DELETE /pots/{pot_id}/facts/{fact_id}` is idempotent for 24 hours.
+
+| Code | HTTP | Cause | Fix | Retryable |
+|---|---|---|---|---|
+| `IDEMPOTENCY_KEY_REUSED` | 409 | The key was used for a different contribution. | Use a new key per contribution. | No |
+| `CONTRIBUTION_IN_FLIGHT` | 409 | A request with the same key is still being saved. `Retry-After: 2`. | Repeat the same request; it answers with `replayed: true`. | Yes |
+| `FACT_DELETE_IN_FLIGHT` | 409 | Another request is deleting the same fact. `Retry-After: 2`. | Repeat; it answers `200` or `404`. | Yes |
 
 ### Document upload
 
@@ -285,6 +327,7 @@ One job error lives outside `error`. Since `0.7.4.0` a job whose facts did not a
 
 | Code | Where | Cause | Fix | Retryable |
 |---|---|---|---|---|
+| `POT_BUSY` | `error` | A recompute job (a source type's new weight, an axiom change) could not take its POT while another one ran, after every retry. | Send the same `PATCH` again: it queues the recompute while any change is left. | Yes |
 | `INDEXING_FAILED` | `result.indexing_error`, with `step: "indexing"`. Never in `result.errors[]`; the job's `status` is `completed`. | The indexing phase failed: reading the extracted facts back, persisting them, embedding them, upserting the vectors, or the vector store rejected some. The job's facts may be missing or stored without a vector. `result.facts_indexed` counts only the vectors known to have landed; search cannot find the rest. | Re-extract the document with `POST /pots/{pot_id}/extract-from-document`. Deduplication keeps the facts that exist, and the re-extraction re-embeds them. | Yes |
 
 ## When to file a support request

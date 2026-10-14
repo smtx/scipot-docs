@@ -51,17 +51,17 @@ Every derived fact, every score propagation, every retrieval ranking traces back
 
 Constitutional axioms implicitly bound what the POT knows about. A "We don't use customer data for training" axiom tells the system (and any agent querying it) that questions about training-data sourcing have an answer; an "Acme is a B2B SaaS company" axiom tells the system that B2C-pricing questions are out of scope.
 
-You can be more explicit by using a `scope_exclusion` category in the Constitution:
+You can be more explicit with `scope` axioms (API `0.7.53.0`), which describe the POT itself and never take part in edges:
 
 ```json
 {
   "constitution": [
     {
-      "category": "purpose",
+      "kind": "scope",
       "content": "This POT covers Acme's engineering decisions and post-mortems."
     },
     {
-      "category": "scope_exclusion",
+      "kind": "scope",
       "content": "This POT does not cover sales playbooks, customer financials, or HR matters."
     }
   ]
@@ -86,7 +86,7 @@ The result: the system you ship in production cannot quietly forget what it was 
 | `level` | `CONSTITUTION` | Distinguishable from any other fact in queries and filters |
 | `is_axiom` | `true` | Allows the system to treat differently in propagation |
 | `immutable` | `true` | Cannot be modified except through governance flow |
-| `temporal_decay_lambda` | 0.00 (forced) | Constitutional facts never decay over time |
+| validity window | none | Axioms have no `valid_from` and are never retired by a repeal; an axiom stops applying only when it is deactivated |
 | `auto_promote_eligible` | `false` | Cannot be auto-promoted *to* CONSTITUTION; only Human Curators can promote |
 | `cascade_on_change` | `true` | Modifying triggers re-scoring of all derived facts |
 
@@ -131,38 +131,58 @@ For the opposite — facts whose claims should NOT be reasoned about as canonica
 
 ## Constitutional governance API
 
-Modifying the Constitution after POT creation requires Human Curator privileges and the governance flow. The two operations:
+Axioms are never edited or deleted. An axiom is added, deactivated or reactivated, and its class can change. Every change queues a job that re-scores the facts the axiom lifted or lowered (`repropagation_job_id` in the response).
 
-### Add a new axiom
+### Add an axiom
 
 ```bash
-curl -X POST "https://api.scipot.ai/pots/{pot_id}/constitution" \
-  -H "X-API-Key: $SCIPOT_KEY" \
+curl -X POST "https://api.scipot.ai/pots/$POT_ID/constitution/facts" \
+  -H "X-API-Key: $SCIPOT_KEY" -H "X-Workspace-ID: $WORKSPACE_ID" \
   -H "Content-Type: application/json" \
   -d '{
     "content": "We deprecate APIs with 90 days notice. No exceptions for paying customers.",
-    "category": "policy",
-    "rationale": "Codifies prior incident PI-2026-04 — silent breaking change to /v1/users.",
-    "curator_id": "user_cto_001"
+    "title": "API deprecation notice",
+    "rationale": "Codifies a prior incident: a silent breaking change to /v1/users.",
+    "kind": "rule"
   }'
 ```
 
-The request is audit-trailed (`CurationRecord`), and downstream facts get re-scored to reflect the new axiom.
+At most 10 active axioms per POT.
 
-### Amend an existing axiom
+### Deactivate, reactivate, reclassify
 
 ```bash
-curl -X PATCH "https://api.scipot.ai/pots/{pot_id}/constitution/{axiom_id}" \
-  -H "X-API-Key: $SCIPOT_KEY" \
+curl -X PATCH "https://api.scipot.ai/pots/$POT_ID/constitution/facts/$AXIOM_ID" \
+  -H "X-API-Key: $SCIPOT_KEY" -H "X-Workspace-ID: $WORKSPACE_ID" \
   -H "Content-Type: application/json" \
-  -d '{
-    "new_content": "We deprecate APIs with 180 days notice (was 90). Aligned with enterprise contracts.",
-    "rationale": "Q2 2026 board decision — enterprise SLA harmonization.",
-    "curator_id": "user_cto_001"
-  }'
+  -d '{"active": false, "reason": "Replaced by the 180-day policy."}'
 ```
 
-The prior version is preserved with a `superseded_by` edge to the new axiom, so the audit trail remains intact.
+A deactivated axiom stays stored (`GET /pots/{pot_id}` lists it with `active: false`), but extraction, deduplication, retrieval, edge detection and score propagation skip it, and the facts it moved go back to their own score. To change an axiom's wording, add the new one and deactivate the old one: the history stays readable.
+
+### Axiom classes: `fact`, `rule`, `scope`
+
+Since API `0.7.53.0` every axiom has a `kind` (default `fact`):
+
+| `kind` | For | Edges |
+|---|---|---|
+| `fact` | A statement about the world the POT covers. "Acme sells only to businesses." | Yes |
+| `rule` | A policy the POT's facts are held to. "We deprecate APIs with 90 days notice." | Yes |
+| `scope` | A statement about the POT itself. "This POT covers engineering decisions only." "Answers cite their source." | **Never** |
+
+No fact can contradict a `scope` axiom, so it is left out of every path that proposes axiom-to-fact edges and out of score propagation. Extraction, deduplication and retrieval still read it. Change the class with `PATCH` (`{"kind": "scope"}`); an edge stored against an axiom before it became `scope` stops moving scores.
+
+## Source types
+
+A POT keeps its own list of the kinds of source it learns from (since API `0.7.42.0`). Each type has a stable `key`, a `label`, a `weight` (0.20–0.79) and a `description`. The weight is the starting POT Score of facts extracted from a document of that kind. See [Initial scoring](/trust-mechanics/pot-score-and-provenance#the-kind-of-source-sets-the-starting-score).
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/pots/{pot_id}/constitution/source-types` | The POT's types. A POT that never edited them reads a template of seven (`?language=` es, en or ca for the labels). |
+| POST | `/pots/{pot_id}/constitution/source-types` | Add a type. At most 12 active, 40 in all. |
+| PATCH | `/pots/{pot_id}/constitution/source-types/{key}` | Change `label`, `weight`, `description`, or switch it off (`"active": false`). A key is never deleted. A new weight queues a job that moves the facts that started with the old one. |
+
+Source types are also what [precedence rules](/trust-mechanics/validity#which-kind-of-source-prevails-precedence-rules) name: which kind of source prevails over which.
 
 ## Authoring guidance — what makes a good axiom
 

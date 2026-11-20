@@ -137,7 +137,7 @@
   "seo": {
     "metatags": {
       "title": "SciPot — Knowledge your AI can trust",
-      "description": "SciPot is the trust layer for AI knowledge. Every fact has a score. Every score has a source. Every contradiction is flagged.",
+      "description": "SciPot is the trust layer for AI knowledge. Every fact has a score. Every score has a source. It flags contradictions.",
       "og:image": "/images/og-default.png"
     },
     "indexing": "navigable"

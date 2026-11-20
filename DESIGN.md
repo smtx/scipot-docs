@@ -45,7 +45,7 @@ One builder voice on public surfaces. The landing is shorter and more aphoristic
 
 - *"Knowledge your AI can trust."* — scipot.ai hero, pitch cover.
 - *"The trust layer for AI knowledge."* — descriptor under the name.
-- *"Every fact has a score. Every score has a source. Every contradiction is flagged."*
+- *"Every fact has a score. Every score has a source. It flags contradictions."*
 - *"Facts, not chunks."* — the engine section.
 - *"Your RAG retrieves. SciPot **knows**."* — the comparison with retrieval pipelines.
 - *"Try building that in a weekend."* — scipot.ai closing line.
